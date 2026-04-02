@@ -67,10 +67,10 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Generate thumbnail PNG with large text
+    /// Generate thumbnail PNGs with large text
     Thumbnail {
-        #[arg(long, default_value = "1")]
-        paper: String,
+        #[arg(long, default_value = "0-196")]
+        papers: String,
         #[arg(long, default_value = "./output/thumbnails")]
         output_dir: PathBuf,
     },
@@ -133,9 +133,9 @@ async fn main() -> Result<()> {
             output_dir,
             skip_existing,
             preview,
-            ..
+            concurrency,
         } => {
-            cmd_render(&papers, &output_dir, skip_existing, preview).await?;
+            cmd_render(&papers, &output_dir, skip_existing, preview, concurrency).await?;
         }
         Commands::Metadata {
             papers,
@@ -151,8 +151,8 @@ async fn main() -> Result<()> {
         } => {
             cmd_upload(&papers, &output_dir, dry_run, force).await?;
         }
-        Commands::Thumbnail { paper, output_dir } => {
-            cmd_thumbnail(&paper, &output_dir).await?;
+        Commands::Thumbnail { papers, output_dir } => {
+            cmd_thumbnails(&papers, &output_dir).await?;
         }
         Commands::Trailer {
             output,
@@ -241,12 +241,80 @@ async fn cmd_manifest(
     Ok(())
 }
 
+fn render_single_paper(
+    paper_id: u32,
+    manifests_dir: &std::path::Path,
+    videos_dir: &std::path::Path,
+    audio_dir: &std::path::Path,
+    skip_existing: bool,
+    preview: bool,
+) -> Result<()> {
+    let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
+    if !manifest_path.exists() {
+        eprintln!("  Skipping Paper {}: no manifest. Run `manifest` first.", paper_id);
+        return Ok(());
+    }
+
+    let manifest: data::manifest::PaperManifest =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
+
+    let video_name = config::video_filename(&paper_id.to_string());
+    let output_path = videos_dir.join(&video_name);
+
+    if skip_existing && output_path.exists() {
+        let size = std::fs::metadata(&output_path)?.len();
+        if size > 1000 {
+            println!(
+                "  Skipping Paper {}: already rendered ({:.1} MB)",
+                paper_id,
+                size as f64 / 1024.0 / 1024.0
+            );
+            return Ok(());
+        }
+    }
+
+    let minutes = manifest.total_duration_sec / 60;
+    println!(
+        "  Paper {}: \"{}\" ({}min, {} segments)",
+        paper_id, manifest.paper_title, minutes, manifest.segments.len()
+    );
+
+    let start = std::time::Instant::now();
+
+    // Build audio PCM buffer
+    let (pcm, sample_rate) = audio::concat::build_audio_buffer(&manifest, audio_dir)?;
+    let wav_path = std::env::temp_dir().join(format!("urantia_paper_{}.wav", paper_id));
+    audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
+
+    // Render frames + encode
+    let max_frames = if preview { Some(300) } else { None };
+    render::pipeline::render_paper(&manifest, &output_path, &wav_path, max_frames)?;
+
+    // Clean up temp WAV
+    let _ = std::fs::remove_file(&wav_path);
+
+    let elapsed = start.elapsed().as_secs();
+    let size_mb = std::fs::metadata(&output_path)?.len() as f64 / 1024.0 / 1024.0;
+    println!(
+        "  Done: Paper {} — {} ({:.1} MB, {}s)",
+        paper_id,
+        output_path.display(),
+        size_mb,
+        elapsed
+    );
+
+    Ok(())
+}
+
 async fn cmd_render(
     papers: &str,
     output_dir: &PathBuf,
     skip_existing: bool,
-    _preview: bool,
+    preview: bool,
+    concurrency: usize,
 ) -> Result<()> {
+    use rayon::prelude::*;
+
     let paper_ids = parse_paper_range(papers);
     let manifests_dir = output_dir.join("manifests");
     let videos_dir = output_dir.join("videos");
@@ -254,64 +322,32 @@ async fn cmd_render(
 
     std::fs::create_dir_all(&videos_dir)?;
 
-    println!("Rendering {} papers...", paper_ids.len());
+    println!(
+        "Rendering {} papers (concurrency: {})...",
+        paper_ids.len(),
+        concurrency
+    );
 
-    for paper_id in &paper_ids {
-        let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
-        if !manifest_path.exists() {
-            eprintln!("  Skipping Paper {}: no manifest. Run `manifest` first.", paper_id);
-            continue;
-        }
+    // Configure rayon thread pool
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(concurrency)
+        .build()
+        .unwrap();
 
-        let manifest: data::manifest::PaperManifest =
-            serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
-
-        let video_name = config::video_filename(&paper_id.to_string());
-        let output_path = videos_dir.join(&video_name);
-
-        if skip_existing && output_path.exists() {
-            let size = std::fs::metadata(&output_path)?.len();
-            if size > 1000 {
-                println!(
-                    "  Skipping Paper {}: already rendered ({:.1} MB)",
-                    paper_id,
-                    size as f64 / 1024.0 / 1024.0
-                );
-                continue;
+    pool.install(|| {
+        paper_ids.par_iter().for_each(|paper_id| {
+            if let Err(e) = render_single_paper(
+                *paper_id,
+                &manifests_dir,
+                &videos_dir,
+                &audio_dir,
+                skip_existing,
+                preview,
+            ) {
+                eprintln!("  Error rendering Paper {}: {}", paper_id, e);
             }
-        }
-
-        let minutes = manifest.total_duration_sec / 60;
-        println!(
-            "  Paper {}: \"{}\" ({}min, {} segments)",
-            paper_id, manifest.paper_title, minutes, manifest.segments.len()
-        );
-
-        let start = std::time::Instant::now();
-
-        // Build audio PCM buffer
-        eprint!("  Building audio buffer...");
-        let (pcm, sample_rate) = audio::concat::build_audio_buffer(&manifest, &audio_dir)?;
-        let wav_path = std::env::temp_dir().join(format!("urantia_paper_{}.wav", paper_id));
-        audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
-        eprintln!(" done ({:.1}s audio)", pcm.len() as f64 / sample_rate as f64);
-
-        // Render frames + encode
-        let max_frames = if _preview { Some(300) } else { None }; // 10s preview
-        render::pipeline::render_paper(&manifest, &output_path, &wav_path, max_frames)?;
-
-        // Clean up temp WAV
-        let _ = std::fs::remove_file(&wav_path);
-
-        let elapsed = start.elapsed().as_secs();
-        let size_mb = std::fs::metadata(&output_path)?.len() as f64 / 1024.0 / 1024.0;
-        println!(
-            "  Done: {} ({:.1} MB, {}s)",
-            output_path.display(),
-            size_mb,
-            elapsed
-        );
-    }
+        });
+    });
 
     println!("All renders complete!");
     Ok(())
@@ -382,27 +418,31 @@ async fn cmd_upload(
     Ok(())
 }
 
-async fn cmd_thumbnail(paper_id: &str, output_dir: &PathBuf) -> Result<()> {
+async fn cmd_thumbnails(papers: &str, output_dir: &PathBuf) -> Result<()> {
+    let paper_ids = parse_paper_range(papers);
     std::fs::create_dir_all(output_dir)?;
 
-    // Load paper JSON from CDN
-    let url = config::paper_cdn_url(paper_id);
-    let resp = reqwest::get(&url).await?;
-    let json = resp.text().await?;
-    let paper = data::paper::Paper::from_json(&json)?;
+    println!("Generating {} thumbnails...", paper_ids.len());
 
-    // Render thumbnail frame
     let mut renderer = render::text::TextRenderer::new();
-    let mut pixmap = render::background::render_background(2.5); // nice glow position
 
-    let mut content = tiny_skia::Pixmap::new(config::WIDTH, config::HEIGHT).unwrap();
-    render::cards::render_thumbnail(&mut renderer, &mut content, &paper.paper_id, &paper.paper_title);
-    render::compositor::composite(&mut pixmap, &content, 1.0);
+    for paper_id in &paper_ids {
+        let url = config::paper_cdn_url(&paper_id.to_string());
+        let resp = reqwest::get(&url).await?;
+        let json = resp.text().await?;
+        let paper = data::paper::Paper::from_json(&json)?;
 
-    let output_path = output_dir.join(format!("thumbnail-{}.png", paper_id));
-    pixmap.save_png(&output_path)?;
-    println!("Thumbnail saved: {}", output_path.display());
+        let mut pixmap = render::background::render_background(2.5);
+        let mut content = tiny_skia::Pixmap::new(config::WIDTH, config::HEIGHT).unwrap();
+        render::cards::render_thumbnail(&mut renderer, &mut content, &paper.paper_id, &paper.paper_title);
+        render::compositor::composite(&mut pixmap, &content, 1.0);
 
+        let output_path = output_dir.join(format!("thumbnail-{}.png", paper_id));
+        pixmap.save_png(&output_path)?;
+        println!("  Paper {}: {}", paper_id, output_path.display());
+    }
+
+    println!("Done!");
     Ok(())
 }
 
