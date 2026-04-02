@@ -117,10 +117,57 @@ pub fn generate_and_write(
     output_dir: &Path,
 ) -> Result<VideoMetadata> {
     let metadata = generate_metadata(manifest);
+
+    // Write JSON
     let json = serde_json::to_string_pretty(&metadata)?;
     std::fs::write(
         output_dir.join(format!("{}.json", metadata.paper_id)),
         &json,
     )?;
+
+    // Write copy-paste upload sheet
+    let sheet = format!(
+        r#"# Paper {} — YouTube Upload Sheet
+
+## Title (copy)
+```
+{}
+```
+
+## Description (copy)
+```
+{}
+```
+
+## Tags (copy)
+```
+{}
+```
+
+## Settings
+- **Category**: Education
+- **Audience**: Not made for kids
+- **Playlist**: The Urantia Book — Full Audio
+- **Visibility**: Public
+
+## Files
+- **Video**: `{}`
+- **Thumbnail**: `thumbnail-{}.png`
+"#,
+        metadata.paper_id,
+        metadata.title,
+        metadata.description,
+        metadata.tags.join(", "),
+        metadata.file_name,
+        metadata.paper_id,
+    );
+
+    let sheets_dir = output_dir.join("sheets");
+    std::fs::create_dir_all(&sheets_dir)?;
+    std::fs::write(
+        sheets_dir.join(format!("paper-{}.md", metadata.paper_id)),
+        &sheet,
+    )?;
+
     Ok(metadata)
 }
