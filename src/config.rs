@@ -16,7 +16,9 @@ pub const R2_BUCKET: &str = "urantiahub-video";
 // Colors (RGBA 0-255)
 pub const BG_COLOR: [u8; 4] = [10, 10, 15, 255]; // #0a0a0f
 pub const TEXT_COLOR: [u8; 4] = [232, 230, 225, 255]; // #e8e6e1
-pub const TEXT_MUTED: [u8; 4] = [232, 230, 225, 102]; // rgba(232,230,225,0.4)
+// Muted text: rgba(232,230,225,0.4) composited on #0a0a0f → solid RGB
+// R: 10 * 0.6 + 232 * 0.4 = 99, G: 10 * 0.6 + 230 * 0.4 = 98, B: 15 * 0.6 + 225 * 0.4 = 99
+pub const TEXT_MUTED: [u8; 4] = [99, 98, 99, 255];
 
 // Glow orb colors (RGBA, premultiplied alpha)
 pub const GOLD_GLOW: [f32; 4] = [186.0 / 255.0, 117.0 / 255.0, 23.0 / 255.0, 0.08];
