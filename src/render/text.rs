@@ -293,4 +293,36 @@ impl TextStyle {
             center: true,
         }
     }
+
+    // --- Thumbnail styles (2.5x larger for YouTube thumbnails) ---
+
+    pub fn thumbnail_label(y: f32) -> Self {
+        let max_width = 1200.0;
+        Self {
+            font_size: 55.0,
+            line_height: 55.0 * 1.4,
+            max_width,
+            x: (WIDTH as f32 - max_width) / 2.0,
+            y,
+            color: TEXT_MUTED,
+            font_family: Family::Name("DM Sans"),
+            weight: Weight::NORMAL,
+            center: true,
+        }
+    }
+
+    pub fn thumbnail_title(y: f32) -> Self {
+        let max_width = 1400.0;
+        Self {
+            font_size: 120.0,
+            line_height: 120.0 * 1.2,
+            max_width,
+            x: (WIDTH as f32 - max_width) / 2.0,
+            y,
+            color: TEXT_COLOR,
+            font_family: Family::Name("Lora"),
+            weight: Weight::SEMIBOLD,
+            center: true,
+        }
+    }
 }

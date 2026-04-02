@@ -67,6 +67,13 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Generate thumbnail PNG with large text
+    Thumbnail {
+        #[arg(long, default_value = "1")]
+        paper: String,
+        #[arg(long, default_value = "./output/thumbnails")]
+        output_dir: PathBuf,
+    },
     /// Render channel trailer (~60s)
     Trailer {
         #[arg(long, default_value = "./output/videos/trailer.mp4")]
@@ -143,6 +150,9 @@ async fn main() -> Result<()> {
             force,
         } => {
             cmd_upload(&papers, &output_dir, dry_run, force).await?;
+        }
+        Commands::Thumbnail { paper, output_dir } => {
+            cmd_thumbnail(&paper, &output_dir).await?;
         }
         Commands::Trailer {
             output,
@@ -369,6 +379,30 @@ async fn cmd_upload(
     }
 
     println!("\n{} uploaded, {} skipped.", uploaded, skipped);
+    Ok(())
+}
+
+async fn cmd_thumbnail(paper_id: &str, output_dir: &PathBuf) -> Result<()> {
+    std::fs::create_dir_all(output_dir)?;
+
+    // Load paper JSON from CDN
+    let url = config::paper_cdn_url(paper_id);
+    let resp = reqwest::get(&url).await?;
+    let json = resp.text().await?;
+    let paper = data::paper::Paper::from_json(&json)?;
+
+    // Render thumbnail frame
+    let mut renderer = render::text::TextRenderer::new();
+    let mut pixmap = render::background::render_background(2.5); // nice glow position
+
+    let mut content = tiny_skia::Pixmap::new(config::WIDTH, config::HEIGHT).unwrap();
+    render::cards::render_thumbnail(&mut renderer, &mut content, &paper.paper_id, &paper.paper_title);
+    render::compositor::composite(&mut pixmap, &content, 1.0);
+
+    let output_path = output_dir.join(format!("thumbnail-{}.png", paper_id));
+    pixmap.save_png(&output_path)?;
+    println!("Thumbnail saved: {}", output_path.display());
+
     Ok(())
 }
 
