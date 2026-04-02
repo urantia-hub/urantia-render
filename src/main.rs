@@ -67,6 +67,15 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Render channel trailer (~60s)
+    Trailer {
+        #[arg(long, default_value = "./output/videos/trailer.mp4")]
+        output: PathBuf,
+        #[arg(long, default_value = "./output")]
+        output_dir: PathBuf,
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+    },
     /// Run full pipeline
     All {
         #[arg(long, default_value = "0-196")]
@@ -134,6 +143,13 @@ async fn main() -> Result<()> {
             force,
         } => {
             cmd_upload(&papers, &output_dir, dry_run, force).await?;
+        }
+        Commands::Trailer {
+            output,
+            output_dir,
+            manifest_path,
+        } => {
+            cmd_trailer(&output, &output_dir, manifest_path.as_deref()).await?;
         }
         Commands::All { papers, .. } => {
             println!("Full pipeline not yet implemented");
@@ -353,5 +369,165 @@ async fn cmd_upload(
     }
 
     println!("\n{} uploaded, {} skipped.", uploaded, skipped);
+    Ok(())
+}
+
+async fn cmd_trailer(
+    output: &PathBuf,
+    output_dir: &PathBuf,
+    manifest_path: Option<&std::path::Path>,
+) -> Result<()> {
+    use crate::data::manifest::{PaperManifest, Segment};
+    use crate::data::text_chunker::TextChunk;
+
+    println!("Building channel trailer...");
+
+    // Load audio manifest for durations
+    let audio_manifest = if let Some(path) = manifest_path {
+        data::audio_manifest::AudioManifest::from_file(path)?
+    } else {
+        println!("  Downloading audio manifest from CDN...");
+        let resp = reqwest::get(config::MANIFEST_CDN_URL).await?;
+        let json = resp.text().await?;
+        data::audio_manifest::AudioManifest::from_json(&json)?
+    };
+
+    // Load Paper 1 JSON for paragraph text
+    let url = config::paper_cdn_url("1");
+    let resp = reqwest::get(&url).await?;
+    let json = resp.text().await?;
+    let paper = data::paper::Paper::from_json(&json)?;
+
+    // Find paragraphs 1:0.1 and 1:0.3
+    let para_0_1 = paper.sections.iter()
+        .flat_map(|s| &s.paragraphs)
+        .find(|p| p.global_id == "1:1.0.1")
+        .ok_or_else(|| anyhow::anyhow!("Paragraph 1:1.0.1 not found"))?;
+
+    let para_0_3 = paper.sections.iter()
+        .flat_map(|s| &s.paragraphs)
+        .find(|p| p.global_id == "1:1.0.3")
+        .ok_or_else(|| anyhow::anyhow!("Paragraph 1:1.0.3 not found"))?;
+
+    // Get audio durations
+    let intro_gid = "1:1.-.-";
+    let intro_dur = audio_manifest.get_duration(intro_gid).unwrap_or(2.0);
+    let dur_0_1 = audio_manifest.get_duration("1:1.0.1").unwrap_or(45.0);
+    let dur_0_3 = audio_manifest.get_duration("1:1.0.3").unwrap_or(60.0);
+
+    let fps = config::FPS;
+    let mut current_frame = 0u32;
+
+    // Build custom manifest
+    let mut segments = Vec::new();
+
+    // 1. Intro card (Paper 1 title) — audio duration + 1s padding
+    let intro_frames = (intro_dur * fps as f64).ceil() as u32 + fps;
+    segments.push(Segment::Intro {
+        paper_title: "The Universal Father".to_string(),
+        paper_id: "1".to_string(),
+        start_frame: current_frame,
+        duration_frames: intro_frames,
+    });
+    current_frame += intro_frames;
+
+    // 2. Paragraph 1:0.1
+    let frames_0_1 = (dur_0_1 * fps as f64).ceil() as u32;
+    segments.push(Segment::Paragraph {
+        global_id: "1:1.0.1".to_string(),
+        standard_reference_id: para_0_1.standard_reference_id.clone(),
+        text: para_0_1.text.clone(),
+        section_title: None,
+        audio_duration_sec: dur_0_1,
+        start_frame: current_frame,
+        duration_frames: frames_0_1,
+        text_chunks: vec![TextChunk {
+            text: para_0_1.text.clone(),
+            start_frame: 0,
+            duration_frames: frames_0_1,
+        }],
+    });
+    current_frame += frames_0_1;
+
+    // 3. Paragraph 1:0.3
+    let frames_0_3 = (dur_0_3 * fps as f64).ceil() as u32;
+    let chunks_0_3 = data::text_chunker::chunk_text(&para_0_3.text, dur_0_3, frames_0_3);
+    segments.push(Segment::Paragraph {
+        global_id: "1:1.0.3".to_string(),
+        standard_reference_id: para_0_3.standard_reference_id.clone(),
+        text: para_0_3.text.clone(),
+        section_title: None,
+        audio_duration_sec: dur_0_3,
+        start_frame: current_frame,
+        duration_frames: frames_0_3,
+        text_chunks: chunks_0_3,
+    });
+    current_frame += frames_0_3;
+
+    // 4. Outro with custom tagline
+    let outro_frames = config::OUTRO_FRAMES;
+    segments.push(Segment::Outro {
+        start_frame: current_frame,
+        duration_frames: outro_frames,
+        tagline: Some("197 Papers. Every paragraph. Listen and read along.".to_string()),
+    });
+    current_frame += outro_frames;
+
+    let manifest = PaperManifest {
+        paper_id: "1".to_string(), // use "1" so audio lookup finds files in output/audio/1/
+        paper_title: "Channel Trailer".to_string(),
+        part_id: "1".to_string(),
+        fps,
+        segments,
+        total_duration_frames: current_frame,
+        total_duration_sec: current_frame / fps,
+    };
+
+    println!(
+        "  Trailer: {} segments, {}s total",
+        manifest.segments.len(),
+        manifest.total_duration_sec
+    );
+
+    // Download audio for trailer paragraphs
+    let audio_dir = output_dir.join("audio").join("1");
+    tokio::fs::create_dir_all(&audio_dir).await?;
+
+    let client = reqwest::Client::new();
+    for gid in &[intro_gid, "1:1.0.1", "1:1.0.3"] {
+        let dest = audio_dir.join(format!("{}.mp3", gid));
+        if !dest.exists() {
+            let url = config::audio_url(gid);
+            let bytes = client.get(&url).send().await?.bytes().await?;
+            tokio::fs::write(&dest, &bytes).await?;
+            println!("  Downloaded {}", gid);
+        }
+    }
+
+    // Build audio buffer
+    eprint!("  Building audio buffer...");
+    let (pcm, sample_rate) = audio::concat::build_audio_buffer(&manifest, &output_dir.join("audio"))?;
+    let wav_path = std::env::temp_dir().join("urantia_trailer.wav");
+    audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
+    eprintln!(" done ({:.1}s)", pcm.len() as f64 / sample_rate as f64);
+
+    // Render
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let start = std::time::Instant::now();
+    render::pipeline::render_paper(&manifest, output, &wav_path, None)?;
+    let _ = std::fs::remove_file(&wav_path);
+
+    let elapsed = start.elapsed().as_secs();
+    let size_mb = std::fs::metadata(output)?.len() as f64 / 1024.0 / 1024.0;
+    println!(
+        "  Done: {} ({:.1} MB, {}s)",
+        output.display(),
+        size_mb,
+        elapsed
+    );
+
     Ok(())
 }

@@ -31,6 +31,8 @@ pub enum Segment {
     Outro {
         start_frame: u32,
         duration_frames: u32,
+        #[serde(default)]
+        tagline: Option<String>,
     },
 }
 
@@ -140,6 +142,7 @@ pub fn build_manifest(paper: &Paper, audio_manifest: &AudioManifest) -> PaperMan
     segments.push(Segment::Outro {
         start_frame: current_frame,
         duration_frames: OUTRO_FRAMES,
+        tagline: None,
     });
     current_frame += OUTRO_FRAMES;
 

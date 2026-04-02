@@ -36,10 +36,12 @@ pub fn render_section_card(
     renderer.render_text(pixmap, section_title, &style);
 }
 
-/// Render outro card — logo icon + "UrantiaHub" + "urantiahub.com" centered
+/// Render outro card — logo icon + "UrantiaHub" + subtitle centered.
+/// If tagline is provided, it replaces "urantiahub.com".
 pub fn render_outro_card(
     renderer: &mut TextRenderer,
     pixmap: &mut Pixmap,
+    tagline: Option<&str>,
 ) {
     let w = WIDTH as f32;
     let h = HEIGHT as f32;
@@ -67,8 +69,9 @@ pub fn render_outro_card(
     renderer.render_text(pixmap, "Hub", &bold_style);
 
     // Subtitle below
+    let subtitle_text = tagline.unwrap_or("urantiahub.com");
     let subtitle_style = TextStyle::outro_subtitle(text_y + 62.0);
-    renderer.render_text(pixmap, "urantiahub.com", &subtitle_style);
+    renderer.render_text(pixmap, subtitle_text, &subtitle_style);
 }
 
 /// Render the UrantiaHub concentric circles logo.

@@ -89,8 +89,8 @@ pub fn render_frame(
                 standard_reference_id,
             );
         }
-        Segment::Outro { .. } => {
-            render_outro_card(renderer, &mut content);
+        Segment::Outro { tagline, .. } => {
+            render_outro_card(renderer, &mut content, tagline.as_deref());
         }
     }
 
