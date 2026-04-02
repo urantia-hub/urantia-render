@@ -2,9 +2,9 @@ use crate::config::*;
 use crate::data::audio_manifest::AudioManifest;
 use crate::data::paper::Paper;
 use crate::data::text_chunker::{chunk_text, TextChunk};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Segment {
     Intro {
@@ -54,7 +54,7 @@ impl Segment {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaperManifest {
     pub paper_id: String,
     pub paper_title: String,

@@ -16,39 +16,39 @@ struct Orb {
 }
 
 const ORBS: [Orb; 3] = [
-    // Gold — slow figure-8
+    // Gold — gentle drift
     Orb {
         color: [186.0 / 255.0, 117.0 / 255.0, 23.0 / 255.0, 0.08],
-        radius_x: 350.0,
-        radius_y: 250.0,
-        x_amp: 0.28,
-        y_amp: 0.18,
-        x_freq: 0.08,
-        y_freq: 0.06,
+        radius_x: 500.0,
+        radius_y: 400.0,
+        x_amp: 0.20,
+        y_amp: 0.15,
+        x_freq: 0.06,
+        y_freq: 0.045,
         x_phase: 0.0,
         y_phase: 0.0,
     },
-    // Blue — circular drift
+    // Blue — slow orbit
     Orb {
         color: [60.0 / 255.0, 60.0 / 255.0, 180.0 / 255.0, 0.06],
-        radius_x: 300.0,
-        radius_y: 300.0,
-        x_amp: 0.24,
-        y_amp: 0.22,
-        x_freq: 0.05,
-        y_freq: 0.07,
+        radius_x: 450.0,
+        radius_y: 450.0,
+        x_amp: 0.18,
+        y_amp: 0.16,
+        x_freq: 0.04,
+        y_freq: 0.055,
         x_phase: 0.0,
         y_phase: 0.0,
     },
-    // Purple — slower, wider arc
+    // Purple — wide, slow arc
     Orb {
         color: [120.0 / 255.0, 60.0 / 255.0, 160.0 / 255.0, 0.05],
-        radius_x: 275.0,
-        radius_y: 225.0,
-        x_amp: 0.30,
-        y_amp: 0.16,
-        x_freq: 0.04,
-        y_freq: 0.09,
+        radius_x: 420.0,
+        radius_y: 350.0,
+        x_amp: 0.22,
+        y_amp: 0.12,
+        x_freq: 0.035,
+        y_freq: 0.07,
         x_phase: 2.0,
         y_phase: 1.0,
     },

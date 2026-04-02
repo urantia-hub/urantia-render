@@ -1,7 +1,7 @@
 use crate::config::{MIN_AUDIO_DURATION_FOR_SPLIT, MIN_CHARS_FOR_SPLIT, MIN_CHUNK_CHARS};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextChunk {
     pub text: String,
     pub start_frame: u32,

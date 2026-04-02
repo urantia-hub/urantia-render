@@ -112,9 +112,14 @@ async fn main() -> Result<()> {
         } => {
             cmd_manifest(&papers, manifest_path.as_deref(), &output_dir).await?;
         }
-        Commands::Render { papers, .. } => {
-            println!("Render not yet implemented (Phase 2-3)");
-            let _ = papers;
+        Commands::Render {
+            papers,
+            output_dir,
+            skip_existing,
+            preview,
+            ..
+        } => {
+            cmd_render(&papers, &output_dir, skip_existing, preview).await?;
         }
         Commands::Metadata { papers, .. } => {
             println!("Metadata not yet implemented (Phase 4)");
@@ -201,5 +206,81 @@ async fn cmd_manifest(
     }
 
     println!("Done!");
+    Ok(())
+}
+
+async fn cmd_render(
+    papers: &str,
+    output_dir: &PathBuf,
+    skip_existing: bool,
+    _preview: bool,
+) -> Result<()> {
+    let paper_ids = parse_paper_range(papers);
+    let manifests_dir = output_dir.join("manifests");
+    let videos_dir = output_dir.join("videos");
+    let audio_dir = output_dir.join("audio");
+
+    std::fs::create_dir_all(&videos_dir)?;
+
+    println!("Rendering {} papers...", paper_ids.len());
+
+    for paper_id in &paper_ids {
+        let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
+        if !manifest_path.exists() {
+            eprintln!("  Skipping Paper {}: no manifest. Run `manifest` first.", paper_id);
+            continue;
+        }
+
+        let manifest: data::manifest::PaperManifest =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
+
+        let video_name = config::video_filename(&paper_id.to_string());
+        let output_path = videos_dir.join(&video_name);
+
+        if skip_existing && output_path.exists() {
+            let size = std::fs::metadata(&output_path)?.len();
+            if size > 1000 {
+                println!(
+                    "  Skipping Paper {}: already rendered ({:.1} MB)",
+                    paper_id,
+                    size as f64 / 1024.0 / 1024.0
+                );
+                continue;
+            }
+        }
+
+        let minutes = manifest.total_duration_sec / 60;
+        println!(
+            "  Paper {}: \"{}\" ({}min, {} segments)",
+            paper_id, manifest.paper_title, minutes, manifest.segments.len()
+        );
+
+        let start = std::time::Instant::now();
+
+        // Build audio PCM buffer
+        eprint!("  Building audio buffer...");
+        let (pcm, sample_rate) = audio::concat::build_audio_buffer(&manifest, &audio_dir)?;
+        let wav_path = std::env::temp_dir().join(format!("urantia_paper_{}.wav", paper_id));
+        audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
+        eprintln!(" done ({:.1}s audio)", pcm.len() as f64 / sample_rate as f64);
+
+        // Render frames + encode
+        let max_frames = if _preview { Some(300) } else { None }; // 10s preview
+        render::pipeline::render_paper(&manifest, &output_path, &wav_path, max_frames)?;
+
+        // Clean up temp WAV
+        let _ = std::fs::remove_file(&wav_path);
+
+        let elapsed = start.elapsed().as_secs();
+        let size_mb = std::fs::metadata(&output_path)?.len() as f64 / 1024.0 / 1024.0;
+        println!(
+            "  Done: {} ({:.1} MB, {}s)",
+            output_path.display(),
+            size_mb,
+            elapsed
+        );
+    }
+
+    println!("All renders complete!");
     Ok(())
 }
