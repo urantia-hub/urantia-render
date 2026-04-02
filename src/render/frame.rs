@@ -40,7 +40,15 @@ pub fn render_frame(
     let mut pixmap = render_background(global_time_sec);
 
     let opacity = match segment {
-        Segment::Intro { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
+        // Intro: no fade-in (visible from frame 0 for YouTube thumbnails), only fade-out
+        Segment::Intro { duration_frames, .. } => {
+            let fade = FADE_FRAMES;
+            if local_frame > duration_frames - fade {
+                (duration_frames - local_frame) as f32 / fade as f32
+            } else {
+                1.0
+            }
+        }
         Segment::SectionCard { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
         Segment::Paragraph { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
         Segment::Outro { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
