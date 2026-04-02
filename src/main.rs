@@ -121,13 +121,19 @@ async fn main() -> Result<()> {
         } => {
             cmd_render(&papers, &output_dir, skip_existing, preview).await?;
         }
-        Commands::Metadata { papers, .. } => {
-            println!("Metadata not yet implemented (Phase 4)");
-            let _ = papers;
+        Commands::Metadata {
+            papers,
+            output_dir,
+        } => {
+            cmd_metadata(&papers, &output_dir).await?;
         }
-        Commands::Upload { papers, .. } => {
-            println!("Upload not yet implemented (Phase 4)");
-            let _ = papers;
+        Commands::Upload {
+            papers,
+            output_dir,
+            dry_run,
+            force,
+        } => {
+            cmd_upload(&papers, &output_dir, dry_run, force).await?;
         }
         Commands::All { papers, .. } => {
             println!("Full pipeline not yet implemented");
@@ -282,5 +288,70 @@ async fn cmd_render(
     }
 
     println!("All renders complete!");
+    Ok(())
+}
+
+async fn cmd_metadata(papers: &str, output_dir: &PathBuf) -> Result<()> {
+    let paper_ids = parse_paper_range(papers);
+    let manifests_dir = output_dir.join("manifests");
+    let metadata_dir = output_dir.join("metadata");
+    std::fs::create_dir_all(&metadata_dir)?;
+
+    println!("Generating metadata for {} papers...", paper_ids.len());
+
+    let mut playlist = Vec::new();
+
+    for paper_id in &paper_ids {
+        let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
+        if !manifest_path.exists() {
+            eprintln!("  Skipping Paper {}: no manifest.", paper_id);
+            continue;
+        }
+
+        let manifest: data::manifest::PaperManifest =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
+
+        let meta = metadata::youtube::generate_and_write(&manifest, &metadata_dir)?;
+        println!("  Paper {}: \"{}\"", paper_id, meta.title);
+        playlist.push(meta);
+    }
+
+    // Write playlist manifest
+    let playlist_json = serde_json::to_string_pretty(&playlist)?;
+    std::fs::write(metadata_dir.join("playlist.json"), &playlist_json)?;
+    println!("\nPlaylist manifest: {} videos", playlist.len());
+    println!("Done!");
+    Ok(())
+}
+
+async fn cmd_upload(
+    papers: &str,
+    output_dir: &PathBuf,
+    dry_run: bool,
+    force: bool,
+) -> Result<()> {
+    let paper_ids = parse_paper_range(papers);
+    let videos_dir = output_dir.join("videos");
+
+    println!(
+        "{}Uploading {} papers to R2...",
+        if dry_run { "[DRY RUN] " } else { "" },
+        paper_ids.len()
+    );
+
+    let mut uploaded = 0;
+    let mut skipped = 0;
+
+    for paper_id in &paper_ids {
+        match upload::r2::upload_video(&paper_id.to_string(), &videos_dir, force, dry_run).await? {
+            Some(_) => uploaded += 1,
+            None => {
+                eprintln!("  Skipping Paper {}: video not found", paper_id);
+                skipped += 1;
+            }
+        }
+    }
+
+    println!("\n{} uploaded, {} skipped.", uploaded, skipped);
     Ok(())
 }
