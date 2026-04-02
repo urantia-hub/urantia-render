@@ -12,6 +12,25 @@ use crate::data::manifest::{PaperManifest, Segment};
 
 pub const SAMPLE_RATE: u32 = 44100;
 
+/// Resolve audio file path, checking two layouts:
+///   1. Nested: {audio_dir}/{paperId}/{globalId}.mp3
+///   2. Flat:   {audio_dir}/tts-1-hd-nova-{globalId}.mp3
+fn resolve_audio_path(audio_dir: &Path, paper_id: &str, global_id: &str) -> Option<std::path::PathBuf> {
+    // Try nested layout first
+    let nested = audio_dir.join(paper_id).join(format!("{}.mp3", global_id));
+    if nested.exists() {
+        return Some(nested);
+    }
+
+    // Try flat layout (urantia-data-sources)
+    let flat = audio_dir.join(format!("tts-1-hd-nova-{}.mp3", global_id));
+    if flat.exists() {
+        return Some(flat);
+    }
+
+    None
+}
+
 /// Decode an MP3 file to mono i16 PCM samples at native sample rate.
 /// Returns (samples, sample_rate).
 fn decode_mp3(path: &Path) -> Result<(Vec<i16>, u32)> {
@@ -83,12 +102,15 @@ pub fn build_audio_buffer(
     manifest: &PaperManifest,
     audio_dir: &Path,
 ) -> Result<(Vec<i16>, u32)> {
-    // Detect sample rate from first audio file
+    // Detect sample rate from first audio file.
+    // Supports two layouts:
+    //   Nested: {audio_dir}/{paperId}/{globalId}.mp3
+    //   Flat:   {audio_dir}/tts-1-hd-nova-{globalId}.mp3  (urantia-data-sources layout)
     let paper_dir = audio_dir.join(&manifest.paper_id);
     let first_gid = format!("{}:{}.-.-", manifest.part_id, manifest.paper_id);
-    let first_path = paper_dir.join(format!("{}.mp3", first_gid));
-    let detected_rate = if first_path.exists() {
-        decode_mp3(&first_path)?.1
+    let first_path = resolve_audio_path(audio_dir, &manifest.paper_id, &first_gid);
+    let detected_rate = if let Some(ref p) = first_path {
+        decode_mp3(p)?.1
     } else {
         SAMPLE_RATE
     };
@@ -148,14 +170,13 @@ pub fn build_audio_buffer(
             Segment::Outro { .. } => continue, // no audio for outro
         };
 
-        let audio_path = paper_dir.join(format!("{}.mp3", global_id));
-        if !audio_path.exists() {
-            eprintln!(
-                "  Warning: audio file not found: {}",
-                audio_path.display()
-            );
-            continue;
-        }
+        let audio_path = match resolve_audio_path(audio_dir, &manifest.paper_id, &global_id) {
+            Some(p) => p,
+            None => {
+                eprintln!("  Warning: audio not found for {}", global_id);
+                continue;
+            }
+        };
 
         let samples = match decode_mp3(&audio_path) {
             Ok((s, _rate)) => s,

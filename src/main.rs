@@ -48,6 +48,9 @@ enum Commands {
         preview: bool,
         #[arg(long)]
         skip_existing: bool,
+        /// Audio directory (supports nested {paperId}/ or flat tts-1-hd-nova-{id}.mp3 layout)
+        #[arg(long)]
+        audio_dir: Option<PathBuf>,
     },
     /// Generate YouTube metadata JSON
     Metadata {
@@ -134,8 +137,9 @@ async fn main() -> Result<()> {
             skip_existing,
             preview,
             concurrency,
+            audio_dir,
         } => {
-            cmd_render(&papers, &output_dir, skip_existing, preview, concurrency).await?;
+            cmd_render(&papers, &output_dir, skip_existing, preview, concurrency, audio_dir.as_deref()).await?;
         }
         Commands::Metadata {
             papers,
@@ -312,13 +316,16 @@ async fn cmd_render(
     skip_existing: bool,
     preview: bool,
     concurrency: usize,
+    audio_dir_override: Option<&std::path::Path>,
 ) -> Result<()> {
     use rayon::prelude::*;
 
     let paper_ids = parse_paper_range(papers);
     let manifests_dir = output_dir.join("manifests");
     let videos_dir = output_dir.join("videos");
-    let audio_dir = output_dir.join("audio");
+    let audio_dir = audio_dir_override
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| output_dir.join("audio"));
 
     std::fs::create_dir_all(&videos_dir)?;
 
