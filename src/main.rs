@@ -291,7 +291,7 @@ fn render_single_paper(
     audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
 
     // Render frames + encode
-    let max_frames = if preview { Some(300) } else { None };
+    let max_frames = if preview { Some(300) } else { None }; // ~10s preview
     render::pipeline::render_paper(&manifest, &output_path, &wav_path, max_frames)?;
 
     // Clean up temp WAV

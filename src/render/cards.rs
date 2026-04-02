@@ -3,15 +3,14 @@ use crate::config::*;
 use crate::render::text::{TextRenderer, TextStyle};
 
 /// Render a thumbnail image with 2.5x larger text for YouTube thumbnails.
+/// Measures total text height to vertically center the label + title block.
 pub fn render_thumbnail(
     renderer: &mut TextRenderer,
     pixmap: &mut Pixmap,
     paper_id: &str,
     paper_title: &str,
 ) {
-    let w = WIDTH as f32;
     let h = HEIGHT as f32;
-    let center_y = h / 2.0;
 
     let label = if paper_id == "0" {
         "Foreword".to_string()
@@ -19,11 +18,18 @@ pub fn render_thumbnail(
         format!("Paper {}", paper_id)
     };
 
-    // 2.5x larger than normal intro card
-    let label_style = TextStyle::thumbnail_label(center_y - 80.0);
+    // Measure heights to vertically center the whole block
+    let label_height = renderer.measure_text(&label, &TextStyle::thumbnail_label(0.0));
+    let title_height = renderer.measure_text(paper_title, &TextStyle::thumbnail_title(0.0));
+    let gap = 30.0; // space between label and title
+    let total_height = label_height + gap + title_height;
+
+    let start_y = (h - total_height) / 2.0;
+
+    let label_style = TextStyle::thumbnail_label(start_y);
     renderer.render_text(pixmap, &label, &label_style);
 
-    let title_style = TextStyle::thumbnail_title(center_y - 10.0);
+    let title_style = TextStyle::thumbnail_title(start_y + label_height + gap);
     renderer.render_text(pixmap, paper_title, &title_style);
 }
 
