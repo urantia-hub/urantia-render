@@ -280,7 +280,7 @@ impl TextStyle {
     // --- Outro subtitle: DM Sans, muted, centered ---
 
     pub fn outro_subtitle(y: f32) -> Self {
-        let max_width = 400.0;
+        let max_width = 800.0;
         Self {
             font_size: 20.0,
             line_height: 20.0 * 1.4,
