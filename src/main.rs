@@ -6,7 +6,7 @@ mod encode;
 mod upload;
 mod metadata;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -69,6 +69,19 @@ enum Commands {
         dry_run: bool,
         #[arg(long)]
         force: bool,
+    },
+    /// Trim outro branding from videos for CDN distribution
+    TrimOutro {
+        #[arg(long, default_value = "0-196")]
+        papers: String,
+        #[arg(long, default_value = "./output/videos")]
+        input_dir: PathBuf,
+        #[arg(long, default_value = "./output-cdn/videos")]
+        output_dir: PathBuf,
+        #[arg(long, default_value = "./output/manifests")]
+        manifests_dir: PathBuf,
+        #[arg(long)]
+        skip_existing: bool,
     },
     /// Generate thumbnail PNGs with large text
     Thumbnail {
@@ -154,6 +167,15 @@ async fn main() -> Result<()> {
             force,
         } => {
             cmd_upload(&papers, &output_dir, dry_run, force).await?;
+        }
+        Commands::TrimOutro {
+            papers,
+            input_dir,
+            output_dir,
+            manifests_dir,
+            skip_existing,
+        } => {
+            cmd_trim_outro(&papers, &input_dir, &output_dir, &manifests_dir, skip_existing).await?;
         }
         Commands::Thumbnail { papers, output_dir } => {
             cmd_thumbnails(&papers, &output_dir).await?;
@@ -433,6 +455,89 @@ async fn cmd_upload(
         "\n{} videos, {} thumbnails uploaded. {} skipped.",
         videos_uploaded, thumbs_uploaded, skipped
     );
+    Ok(())
+}
+
+async fn cmd_trim_outro(
+    papers: &str,
+    input_dir: &PathBuf,
+    output_dir: &PathBuf,
+    manifests_dir: &PathBuf,
+    skip_existing: bool,
+) -> Result<()> {
+    let paper_ids = parse_paper_range(papers);
+    std::fs::create_dir_all(output_dir)?;
+
+    println!("Trimming outro from {} papers...", paper_ids.len());
+    println!("  Input:  {}", input_dir.display());
+    println!("  Output: {}", output_dir.display());
+
+    let mut trimmed = 0;
+    let mut skipped = 0;
+
+    for paper_id in &paper_ids {
+        let video_name = config::video_filename(&paper_id.to_string());
+        let input_path = input_dir.join(&video_name);
+        let output_path = output_dir.join(&video_name);
+
+        if !input_path.exists() {
+            eprintln!("  Skipping Paper {}: video not found", paper_id);
+            skipped += 1;
+            continue;
+        }
+
+        if skip_existing && output_path.exists() {
+            let size = std::fs::metadata(&output_path)?.len();
+            if size > 1000 {
+                skipped += 1;
+                continue;
+            }
+        }
+
+        // Get duration from manifest
+        let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
+        let duration_sec = if manifest_path.exists() {
+            let manifest: data::manifest::PaperManifest =
+                serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
+            manifest.total_duration_sec as f64
+        } else {
+            eprintln!("  Skipping Paper {}: no manifest", paper_id);
+            skipped += 1;
+            continue;
+        };
+
+        let trim_to = duration_sec - 5.0;
+        if trim_to <= 0.0 {
+            eprintln!("  Skipping Paper {}: too short to trim", paper_id);
+            skipped += 1;
+            continue;
+        }
+
+        let status = std::process::Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-i", &input_path.to_string_lossy(),
+                "-t", &format!("{:.3}", trim_to),
+                "-c", "copy",
+                &output_path.to_string_lossy(),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .context("Failed to run ffmpeg")?;
+
+        if status.success() {
+            trimmed += 1;
+            if trimmed % 20 == 0 || trimmed == 1 {
+                println!("  Trimmed {}/{}", trimmed, paper_ids.len());
+            }
+        } else {
+            eprintln!("  Error trimming Paper {}", paper_id);
+            skipped += 1;
+        }
+    }
+
+    println!("\n{} trimmed, {} skipped.", trimmed, skipped);
     Ok(())
 }
 
