@@ -401,27 +401,38 @@ async fn cmd_upload(
 ) -> Result<()> {
     let paper_ids = parse_paper_range(papers);
     let videos_dir = output_dir.join("videos");
+    let thumbnails_dir = output_dir.join("thumbnails");
 
     println!(
-        "{}Uploading {} papers to R2...",
+        "{}Uploading {} papers to R2 (videos + thumbnails)...",
         if dry_run { "[DRY RUN] " } else { "" },
         paper_ids.len()
     );
 
-    let mut uploaded = 0;
+    let mut videos_uploaded = 0;
+    let mut thumbs_uploaded = 0;
     let mut skipped = 0;
 
     for paper_id in &paper_ids {
-        match upload::r2::upload_video(&paper_id.to_string(), &videos_dir, force, dry_run).await? {
-            Some(_) => uploaded += 1,
+        let pid = paper_id.to_string();
+
+        match upload::r2::upload_video(&pid, &videos_dir, force, dry_run).await? {
+            Some(_) => videos_uploaded += 1,
             None => {
                 eprintln!("  Skipping Paper {}: video not found", paper_id);
                 skipped += 1;
             }
         }
+
+        if upload::r2::upload_thumbnail(&pid, &thumbnails_dir, force, dry_run).await?.is_some() {
+            thumbs_uploaded += 1;
+        }
     }
 
-    println!("\n{} uploaded, {} skipped.", uploaded, skipped);
+    println!(
+        "\n{} videos, {} thumbnails uploaded. {} skipped.",
+        videos_uploaded, thumbs_uploaded, skipped
+    );
     Ok(())
 }
 

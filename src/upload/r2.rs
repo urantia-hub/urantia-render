@@ -75,3 +75,44 @@ pub async fn upload_video(
 
     Ok(Some(file_name))
 }
+
+/// Upload a thumbnail PNG to R2.
+pub async fn upload_thumbnail(
+    paper_id: &str,
+    thumbnails_dir: &Path,
+    force: bool,
+    dry_run: bool,
+) -> Result<Option<String>> {
+    let file_name = format!("thumbnail-{}.png", paper_id);
+    let local_path = thumbnails_dir.join(&file_name);
+
+    if !local_path.exists() {
+        return Ok(None);
+    }
+
+    let size_kb = std::fs::metadata(&local_path)?.len() as f64 / 1024.0;
+
+    if dry_run {
+        println!("  [DRY RUN] Would upload: {} ({:.0} KB)", file_name, size_kb);
+        return Ok(Some(file_name));
+    }
+
+    let bucket = get_bucket()?;
+
+    if !force {
+        match bucket.head_object(&file_name).await {
+            Ok(_) => {
+                return Ok(Some(file_name));
+            }
+            Err(_) => {}
+        }
+    }
+
+    let content = std::fs::read(&local_path)?;
+    bucket
+        .put_object_with_content_type(&file_name, &content, "image/png")
+        .await
+        .context("Failed to upload thumbnail to R2")?;
+
+    Ok(Some(file_name))
+}
