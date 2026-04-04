@@ -516,33 +516,74 @@ async fn cmd_trim_outro(
             continue;
         };
 
-        let trim_to = duration_sec - 5.5; // 5s outro + 0.5s fade-in transition
-        if trim_to <= 0.0 {
+        let trim_to = duration_sec - 5.0; // remove 5s outro
+        if trim_to <= 15.0 {
             eprintln!("  Skipping Paper {}: too short to trim", paper_id);
             skipped += 1;
             continue;
         }
 
-        let status = std::process::Command::new("ffmpeg")
+        // Hybrid trim: stream copy the bulk, re-encode only the last ~10s
+        let split_at = duration_sec - 15.0;
+        let tail_duration = trim_to - split_at;
+        let tmp_dir = std::env::temp_dir();
+        let part1 = tmp_dir.join(format!("trim_part1_{}.mp4", paper_id));
+        let part2 = tmp_dir.join(format!("trim_part2_{}.mp4", paper_id));
+        let concat_list = tmp_dir.join(format!("trim_concat_{}.txt", paper_id));
+
+        // Part 1: stream copy everything up to split point (instant)
+        let s1 = std::process::Command::new("ffmpeg")
             .args([
-                "-y",
-                "-i", &input_path.to_string_lossy(),
-                "-t", &format!("{:.3}", trim_to),
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "20",
-                "-pix_fmt", "yuv420p",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                "-movflags", "+faststart",
+                "-y", "-i", &input_path.to_string_lossy(),
+                "-t", &format!("{:.3}", split_at),
+                "-c", "copy",
+                &part1.to_string_lossy(),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .context("ffmpeg part1 failed")?;
+
+        // Part 2: re-encode only the last ~10s with precise end point
+        let s2 = std::process::Command::new("ffmpeg")
+            .args([
+                "-y", "-i", &input_path.to_string_lossy(),
+                "-ss", &format!("{:.3}", split_at),
+                "-t", &format!("{:.3}", tail_duration),
+                "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "128k",
+                &part2.to_string_lossy(),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .context("ffmpeg part2 failed")?;
+
+        // Concatenate
+        std::fs::write(&concat_list, format!(
+            "file '{}'\nfile '{}'",
+            part1.to_string_lossy(),
+            part2.to_string_lossy(),
+        ))?;
+
+        let s3 = std::process::Command::new("ffmpeg")
+            .args([
+                "-y", "-f", "concat", "-safe", "0",
+                "-i", &concat_list.to_string_lossy(),
+                "-c", "copy", "-movflags", "+faststart",
                 &output_path.to_string_lossy(),
             ])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .context("Failed to run ffmpeg")?;
+            .context("ffmpeg concat failed")?;
 
-        if status.success() {
+        // Clean up temp files
+        let _ = std::fs::remove_file(&part1);
+        let _ = std::fs::remove_file(&part2);
+        let _ = std::fs::remove_file(&concat_list);
+
+        if s1.success() && s2.success() && s3.success() {
             trimmed += 1;
             if trimmed % 20 == 0 || trimmed == 1 {
                 println!("  Trimmed {}/{}", trimmed, paper_ids.len());
