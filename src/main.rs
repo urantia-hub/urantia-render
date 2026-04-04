@@ -494,19 +494,29 @@ async fn cmd_trim_outro(
             }
         }
 
-        // Get duration from manifest
-        let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
-        let duration_sec = if manifest_path.exists() {
-            let manifest: data::manifest::PaperManifest =
-                serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
-            manifest.total_duration_sec as f64
-        } else {
-            eprintln!("  Skipping Paper {}: no manifest", paper_id);
+        // Get actual video duration from ffprobe (more precise than manifest integer)
+        let ffprobe_output = std::process::Command::new("ffprobe")
+            .args([
+                "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                &input_path.to_string_lossy(),
+            ])
+            .output()
+            .context("Failed to run ffprobe")?;
+
+        let duration_sec: f64 = String::from_utf8_lossy(&ffprobe_output.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0.0);
+
+        if duration_sec <= 0.0 {
+            eprintln!("  Skipping Paper {}: could not determine duration", paper_id);
             skipped += 1;
             continue;
         };
 
-        let trim_to = duration_sec - 5.0;
+        let trim_to = duration_sec - 5.5; // 5s outro + 0.5s fade-in transition
         if trim_to <= 0.0 {
             eprintln!("  Skipping Paper {}: too short to trim", paper_id);
             skipped += 1;
@@ -518,7 +528,13 @@ async fn cmd_trim_outro(
                 "-y",
                 "-i", &input_path.to_string_lossy(),
                 "-t", &format!("{:.3}", trim_to),
-                "-c", "copy",
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "20",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",
                 &output_path.to_string_lossy(),
             ])
             .stdout(std::process::Stdio::null())
