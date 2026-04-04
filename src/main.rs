@@ -118,12 +118,17 @@ fn num_cpus() -> usize {
 }
 
 fn parse_paper_range(range: &str) -> Vec<u32> {
-    if range.contains('-') {
+    if range.contains(',') {
+        // Comma-separated: "0,15,20,22"
+        range.split(',').filter_map(|s| s.trim().parse().ok()).collect()
+    } else if range.contains('-') {
+        // Range: "0-196"
         let parts: Vec<&str> = range.split('-').collect();
         let start: u32 = parts[0].parse().unwrap_or(0);
         let end: u32 = parts[1].parse().unwrap_or(196);
         (start..=end).collect()
     } else {
+        // Single: "1"
         vec![range.parse().unwrap_or(0)]
     }
 }

@@ -90,7 +90,8 @@ impl Paper {
             }
         }
 
-        let sections: Vec<Section> = section_map.into_values().collect();
+        let mut sections: Vec<Section> = section_map.into_values().collect();
+        sections.sort_by_key(|s| s.section_id.parse::<u32>().unwrap_or(0));
 
         Ok(Paper {
             paper_id,
