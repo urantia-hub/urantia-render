@@ -91,3 +91,11 @@ Paper/section intro audio also available (e.g., `1:1.-.-` says "Paper 1: The Uni
 - [ ] Phase 3: Encoding pipeline (ffmpeg + symphonia PCM assembly)
 - [ ] Phase 4: Upload + metadata generation
 - [ ] Phase 5: Parallelism + full run
+
+## License
+
+This project is licensed under the [MIT License](./LICENSE).
+
+## Disclaimer
+
+This is an independent community project by [Adams Technologies LLC](https://adamstechnologies.com). It is not affiliated with, endorsed by, or connected with Urantia Foundation. The original English text of *The Urantia Book* is in the public domain (*Michael Foundation v. Urantia Foundation*, 10th Cir. 2003). All use of "Urantia" is nominative fair use to identify the subject matter.
