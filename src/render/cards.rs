@@ -2,6 +2,60 @@ use tiny_skia::Pixmap;
 use crate::config::*;
 use crate::render::text::{TextRenderer, TextStyle};
 
+/// Render a playlist thumbnail — label (e.g. "Part I") above + title below, centered.
+/// If label is empty, renders title + subtitle layout instead.
+pub fn render_playlist_thumbnail(
+    renderer: &mut TextRenderer,
+    pixmap: &mut Pixmap,
+    label: &str,
+    title: &str,
+) {
+    render_playlist_thumbnail_with_subtitle(renderer, pixmap, label, title, None);
+}
+
+/// Render a playlist thumbnail with optional subtitle below the title.
+pub fn render_playlist_thumbnail_with_subtitle(
+    renderer: &mut TextRenderer,
+    pixmap: &mut Pixmap,
+    label: &str,
+    title: &str,
+    subtitle: Option<&str>,
+) {
+    let h = HEIGHT as f32;
+    let gap = 30.0;
+
+    if label.is_empty() {
+        // Title + subtitle layout (for main playlist)
+        let title_height = renderer.measure_text(title, &TextStyle::thumbnail_title(0.0));
+        let sub_height = subtitle.map(|s| renderer.measure_text(s, &TextStyle::thumbnail_label(0.0))).unwrap_or(0.0);
+        let sub_gap = if subtitle.is_some() { gap } else { 0.0 };
+        let total_height = title_height + sub_gap + sub_height;
+
+        let start_y = (h - total_height) / 2.0;
+
+        let title_style = TextStyle::thumbnail_title(start_y);
+        renderer.render_text(pixmap, title, &title_style);
+
+        if let Some(sub) = subtitle {
+            let sub_style = TextStyle::thumbnail_label(start_y + title_height + sub_gap);
+            renderer.render_text(pixmap, sub, &sub_style);
+        }
+    } else {
+        // Label + title layout (for Part playlists)
+        let label_height = renderer.measure_text(label, &TextStyle::thumbnail_label(0.0));
+        let title_height = renderer.measure_text(title, &TextStyle::thumbnail_title(0.0));
+        let total_height = label_height + gap + title_height;
+
+        let start_y = (h - total_height) / 2.0;
+
+        let label_style = TextStyle::thumbnail_label(start_y);
+        renderer.render_text(pixmap, label, &label_style);
+
+        let title_style = TextStyle::thumbnail_title(start_y + label_height + gap);
+        renderer.render_text(pixmap, title, &title_style);
+    }
+}
+
 /// Render a thumbnail image with 2.5x larger text for YouTube thumbnails.
 /// Measures total text height to vertically center the label + title block.
 pub fn render_thumbnail(
