@@ -165,8 +165,8 @@ impl TextStyle {
     pub fn body_sized(x: f32, y: f32, font_size: f32) -> Self {
         Self {
             font_size,
-            line_height: font_size * 1.7,
-            max_width: 1100.0,
+            line_height: font_size * 1.5,
+            max_width: 1100.0 * RESOLUTION_SCALE,
             x,
             y,
             color: TEXT_COLOR,
@@ -179,10 +179,11 @@ impl TextStyle {
     // --- Reference ID: DM Sans Regular, 16px, muted ---
 
     pub fn reference_id(x: f32, y: f32) -> Self {
+        let font_size = 26.0 * RESOLUTION_SCALE;
         Self {
-            font_size: 16.0,
-            line_height: 16.0 * 1.4,
-            max_width: 200.0,
+            font_size,
+            line_height: font_size * 1.4,
+            max_width: 200.0 * RESOLUTION_SCALE,
             x,
             y,
             color: TEXT_MUTED,
@@ -195,10 +196,11 @@ impl TextStyle {
     // --- Paper title (intro card): Lora SemiBold (600), 54px, centered ---
 
     pub fn paper_title(y: f32) -> Self {
-        let max_width = 900.0;
+        let font_size = 72.0 * RESOLUTION_SCALE;
+        let max_width = 900.0 * RESOLUTION_SCALE;
         Self {
-            font_size: 54.0,
-            line_height: 54.0 * 1.3,
+            font_size,
+            line_height: font_size * 1.3,
             max_width,
             x: (WIDTH as f32 - max_width) / 2.0,
             y,
@@ -212,10 +214,11 @@ impl TextStyle {
     // --- Paper label ("PAPER 1"): DM Sans, muted, centered ---
 
     pub fn paper_label(y: f32) -> Self {
-        let max_width = 400.0;
+        let font_size = 32.0 * RESOLUTION_SCALE;
+        let max_width = 400.0 * RESOLUTION_SCALE;
         Self {
-            font_size: 22.0,
-            line_height: 22.0 * 1.4,
+            font_size,
+            line_height: font_size * 1.4,
             max_width,
             x: (WIDTH as f32 - max_width) / 2.0,
             y,
@@ -231,10 +234,11 @@ impl TextStyle {
     // so we use the italic font family name directly.
 
     pub fn section_title(y: f32) -> Self {
-        let max_width = 800.0;
+        let font_size = 48.0 * RESOLUTION_SCALE;
+        let max_width = 800.0 * RESOLUTION_SCALE;
         Self {
-            font_size: 36.0,
-            line_height: 36.0 * 1.4,
+            font_size,
+            line_height: font_size * 1.4,
             max_width,
             x: (WIDTH as f32 - max_width) / 2.0,
             y,
@@ -248,10 +252,11 @@ impl TextStyle {
     // --- Outro logo: "Urantia" in Lato Light ---
 
     pub fn outro_logo_light(x: f32, y: f32) -> Self {
+        let font_size = 48.0 * RESOLUTION_SCALE;
         Self {
-            font_size: 48.0,
-            line_height: 48.0 * 1.3,
-            max_width: 500.0,
+            font_size,
+            line_height: font_size * 1.3,
+            max_width: 500.0 * RESOLUTION_SCALE,
             x,
             y,
             color: TEXT_COLOR,
@@ -264,10 +269,11 @@ impl TextStyle {
     // --- Outro logo: "Hub" in Lato Bold ---
 
     pub fn outro_logo_bold(x: f32, y: f32) -> Self {
+        let font_size = 48.0 * RESOLUTION_SCALE;
         Self {
-            font_size: 48.0,
-            line_height: 48.0 * 1.3,
-            max_width: 300.0,
+            font_size,
+            line_height: font_size * 1.3,
+            max_width: 300.0 * RESOLUTION_SCALE,
             x,
             y,
             color: TEXT_COLOR,
@@ -280,10 +286,11 @@ impl TextStyle {
     // --- Outro subtitle: DM Sans, muted, centered ---
 
     pub fn outro_subtitle(y: f32) -> Self {
-        let max_width = 800.0;
+        let font_size = 20.0 * RESOLUTION_SCALE;
+        let max_width = 800.0 * RESOLUTION_SCALE;
         Self {
-            font_size: 20.0,
-            line_height: 20.0 * 1.4,
+            font_size,
+            line_height: font_size * 1.4,
             max_width,
             x: (WIDTH as f32 - max_width) / 2.0,
             y,
