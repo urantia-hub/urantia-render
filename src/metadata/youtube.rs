@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::config;
 use crate::data::manifest::{PaperManifest, Segment};
+use crate::text_util::normalize_title;
 
 #[derive(Debug, Serialize)]
 pub struct VideoMetadata {
@@ -31,22 +32,19 @@ pub fn generate_metadata(manifest: &PaperManifest) -> VideoMetadata {
     let paper_id = &manifest.paper_id;
     let is_foreword = paper_id == "0";
 
-    // Title format:
-    //   Foreword -> "Foreword | The Urantia Papers"
-    //   Paper N  -> "{title} — Paper N | The Urantia Papers"
-    //
-    // Note: paper_title was normalized at data load (Paper::from_json), so titles
-    // like "Supreme and Ultimate — Time and Space" already have spaced em-dashes.
+    // Manifests cached before the normalization change may still hold unspaced
+    // em-dashes; normalize defensively. normalize_title is idempotent.
+    let paper_title = normalize_title(&manifest.paper_title);
+
     let title = if is_foreword {
         "Foreword | The Urantia Papers".to_string()
     } else {
         format!(
             "{} — Paper {} | The Urantia Papers",
-            manifest.paper_title, paper_id
+            paper_title, paper_id
         )
     };
 
-    // Chapter timestamps from section cards
     let mut chapters = vec!["0:00 Introduction".to_string()];
     for segment in &manifest.segments {
         if let Segment::SectionCard {
@@ -56,7 +54,7 @@ pub fn generate_metadata(manifest: &PaperManifest) -> VideoMetadata {
         } = segment
         {
             let timestamp = format_timestamp(start_frame / manifest.fps);
-            chapters.push(format!("{} {}", timestamp, section_title));
+            chapters.push(format!("{} {}", timestamp, normalize_title(section_title)));
         }
     }
 
@@ -108,7 +106,7 @@ pub fn generate_metadata(manifest: &PaperManifest) -> VideoMetadata {
         "Urantia Papers".to_string(),
         "Urantia Book".to_string(),
         "Urantia".to_string(),
-        manifest.paper_title.clone(),
+        paper_title.clone(),
         "audiobook".to_string(),
         "spirituality".to_string(),
         "philosophy".to_string(),
