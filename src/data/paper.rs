@@ -2,6 +2,8 @@ use anyhow::Result;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
+use crate::text_util::normalize_title;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RawNode {
@@ -52,7 +54,7 @@ impl Paper {
             .ok_or_else(|| anyhow::anyhow!("No paper entry found"))?;
 
         let paper_id = paper_entry.paper_id.clone().unwrap_or_default();
-        let paper_title = paper_entry.paper_title.clone().unwrap_or_default();
+        let paper_title = normalize_title(&paper_entry.paper_title.clone().unwrap_or_default());
         let part_id = paper_entry.part_id.clone().unwrap_or_default();
 
         let mut section_map: BTreeMap<String, Section> = BTreeMap::new();
@@ -63,7 +65,11 @@ impl Paper {
             if node.node_type == "section" {
                 section_map.entry(section_id.clone()).or_insert_with(|| Section {
                     section_id: section_id.clone(),
-                    section_title: node.section_title.clone().filter(|s| !s.is_empty()),
+                    section_title: node
+                        .section_title
+                        .clone()
+                        .filter(|s| !s.is_empty())
+                        .map(|s| normalize_title(&s)),
                     paragraphs: Vec::new(),
                 });
             }
@@ -72,7 +78,11 @@ impl Paper {
                 if let Some(text) = &node.text {
                     let section = section_map.entry(section_id.clone()).or_insert_with(|| Section {
                         section_id: section_id.clone(),
-                        section_title: node.section_title.clone().filter(|s| !s.is_empty()),
+                        section_title: node
+                            .section_title
+                            .clone()
+                            .filter(|s| !s.is_empty())
+                            .map(|s| normalize_title(&s)),
                         paragraphs: Vec::new(),
                     });
 
@@ -83,7 +93,11 @@ impl Paper {
                             .clone()
                             .unwrap_or_default(),
                         text: text.clone(),
-                        section_title: node.section_title.clone().filter(|s| !s.is_empty()),
+                        section_title: node
+                            .section_title
+                            .clone()
+                            .filter(|s| !s.is_empty())
+                            .map(|s| normalize_title(&s)),
                         section_id: section_id.clone(),
                     });
                 }
@@ -108,5 +122,65 @@ impl Paper {
 
     pub fn total_paragraphs(&self) -> usize {
         self.sections.iter().map(|s| s.paragraphs.len()).sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_json_normalizes_paper_title_em_dash() {
+        let json = r#"[{
+            "globalId": "5:42.-.-",
+            "type": "paper",
+            "paperId": "42",
+            "paperTitle": "Energy—Mind and Matter",
+            "partId": "2"
+        }]"#;
+        let paper = Paper::from_json(json).unwrap();
+        assert_eq!(paper.paper_title, "Energy — Mind and Matter");
+    }
+
+    #[test]
+    fn from_json_normalizes_section_title_em_dash() {
+        let json = r#"[
+            {
+                "globalId": "5:42.-.-",
+                "type": "paper",
+                "paperId": "42",
+                "paperTitle": "Energy",
+                "partId": "2"
+            },
+            {
+                "globalId": "5:42.1.-",
+                "type": "section",
+                "paperId": "42",
+                "sectionId": "1",
+                "sectionTitle": "Energy—Matter"
+            },
+            {
+                "globalId": "5:42.1.1",
+                "type": "paragraph",
+                "paperId": "42",
+                "sectionId": "1",
+                "sectionTitle": "Energy—Matter",
+                "paragraphId": "1",
+                "standardReferenceId": "42.1.1",
+                "text": "Hello"
+            }
+        ]"#;
+        let paper = Paper::from_json(json).unwrap();
+        let section = paper
+            .sections
+            .iter()
+            .find(|s| s.section_id == "1")
+            .expect("section 1");
+        assert_eq!(section.section_title.as_deref(), Some("Energy — Matter"));
+        let paragraph = &section.paragraphs[0];
+        assert_eq!(
+            paragraph.section_title.as_deref(),
+            Some("Energy — Matter")
+        );
     }
 }
