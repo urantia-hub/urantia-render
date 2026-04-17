@@ -5,6 +5,7 @@ mod audio;
 mod encode;
 mod upload;
 mod metadata;
+mod text_util;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
