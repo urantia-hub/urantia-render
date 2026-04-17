@@ -337,7 +337,9 @@ pub fn render_banner(renderer: &mut TextRenderer, pixmap: &mut Pixmap) {
     let wordmark_x = text_x;
     let light = TextStyle::banner_wordmark_light(wordmark_x, stack_top);
     renderer.render_text(pixmap, "Urantia", &light);
-    let bold = TextStyle::banner_wordmark_bold(wordmark_x + urantia_w, stack_top);
+    // Lato Light renders ~12 px higher than Lato Bold at 170pt in cosmic-text;
+    // nudge "Hub" up to put both on the same visual baseline.
+    let bold = TextStyle::banner_wordmark_bold(wordmark_x + urantia_w, stack_top - 18.0);
     renderer.render_text(pixmap, "Hub", &bold);
 
     let tagline_y = stack_top + wordmark_h + gap1;
