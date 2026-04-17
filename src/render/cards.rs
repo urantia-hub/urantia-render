@@ -159,9 +159,11 @@ pub fn render_outro_card(
     renderer.render_text(pixmap, subtitle_text, &subtitle_style);
 }
 
-/// Render the UrantiaHub concentric circles logo.
+/// Render the UrantiaHub concentric-rings logo onto `pixmap`.
+/// `cx, cy` is the logo center. `scale` is the outer radius in pixels
+/// (pass 300 for a ~600 px diameter logo; 400 for ~800 px diameter).
 /// 7 circles: 6 stroked rings (increasing opacity) + 1 filled center dot.
-fn render_concentric_logo(pixmap: &mut Pixmap, cx: f32, cy: f32, scale: f32) {
+pub fn render_concentric_logo(pixmap: &mut Pixmap, cx: f32, cy: f32, scale: f32) {
     // Original SVG is 512x512 with circles centered at 256,256.
     // We scale everything relative to our target radius.
     let s = scale / 256.0; // scale factor from SVG coords to our size
