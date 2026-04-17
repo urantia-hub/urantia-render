@@ -7,7 +7,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-use crate::config::FPS;
+use crate::config::{FADE_FRAMES, FPS};
 use crate::data::manifest::{PaperManifest, Segment};
 
 pub const SAMPLE_RATE: u32 = 44100;
@@ -151,7 +151,11 @@ pub fn build_audio_buffer(
                         let sub: Vec<&str> = parts[1].split('.').collect();
                         if sub.len() >= 2 {
                             let section_gid = format!("{}:{}.{}.-", parts[0], sub[0], sub[1]);
-                            (section_gid, *start_frame)
+                            // Delay section audio by FADE_FRAMES so speech begins
+                            // once the card has fully faded in, not during the
+                            // fade-in phase. Makes the section title feel like a
+                            // deliberate announcement at peak visibility.
+                            (section_gid, *start_frame + FADE_FRAMES)
                         } else {
                             continue;
                         }
