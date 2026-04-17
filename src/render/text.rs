@@ -325,4 +325,99 @@ impl TextStyle {
             center: true,
         }
     }
+
+    // --- Paper thumbnail (redesigned): "PAPER 1" / "FOREWORD" in DM Sans Bold,
+    //     left-aligned within the right-hand text column ---
+
+    pub fn thumbnail_paper_number(x: f32, y: f32, max_width: f32) -> Self {
+        Self {
+            font_size: 160.0,
+            line_height: 160.0 * 1.1,
+            max_width,
+            x,
+            y,
+            color: [240, 180, 90, 255],
+            font_family: Family::Name("DM Sans"),
+            weight: Weight::BOLD,
+            center: false,
+        }
+    }
+
+    // --- Paper thumbnail (redesigned): paper title in Lora SemiBold, left-aligned ---
+
+    pub fn thumbnail_paper_title_right(x: f32, y: f32, max_width: f32) -> Self {
+        Self {
+            font_size: 130.0,
+            line_height: 130.0 * 1.15,
+            max_width,
+            x,
+            y,
+            color: TEXT_COLOR,
+            font_family: Family::Name("Lora"),
+            weight: Weight::SEMIBOLD,
+            center: false,
+        }
+    }
+
+    // --- Channel banner: "UrantiaHub" wordmark (Lato Light + Bold), large ---
+
+    pub fn banner_wordmark_light(x: f32, y: f32) -> Self {
+        Self {
+            font_size: 220.0,
+            line_height: 220.0 * 1.1,
+            max_width: 1200.0,
+            x,
+            y,
+            color: TEXT_COLOR,
+            font_family: Family::Name("Lato"),
+            weight: Weight::LIGHT,
+            center: false,
+        }
+    }
+
+    pub fn banner_wordmark_bold(x: f32, y: f32) -> Self {
+        Self {
+            font_size: 220.0,
+            line_height: 220.0 * 1.1,
+            max_width: 700.0,
+            x,
+            y,
+            color: TEXT_COLOR,
+            font_family: Family::Name("Lato"),
+            weight: Weight::BOLD,
+            center: false,
+        }
+    }
+
+    // --- Channel banner: tagline (Lora Regular, below wordmark) ---
+
+    pub fn banner_tagline(x: f32, y: f32) -> Self {
+        Self {
+            font_size: 70.0,
+            line_height: 70.0 * 1.3,
+            max_width: 2000.0,
+            x,
+            y,
+            color: TEXT_COLOR,
+            font_family: Family::Name("Lora"),
+            weight: Weight::NORMAL,
+            center: false,
+        }
+    }
+
+    // --- Channel banner: URL footer (DM Sans Medium, gold) ---
+
+    pub fn banner_url(x: f32, y: f32) -> Self {
+        Self {
+            font_size: 48.0,
+            line_height: 48.0 * 1.3,
+            max_width: 800.0,
+            x,
+            y,
+            color: [240, 180, 90, 255],
+            font_family: Family::Name("DM Sans"),
+            weight: Weight::MEDIUM,
+            center: false,
+        }
+    }
 }
