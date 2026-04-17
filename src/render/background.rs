@@ -55,11 +55,11 @@ const ORBS: [Orb; 3] = [
 ];
 
 /// Render the animated glow background at a given time (seconds).
-/// Returns a 1920x1080 RGBA pixmap.
+/// Returns a WIDTH×HEIGHT RGBA pixmap. Orb radii scale with RESOLUTION_SCALE
+/// so the look stays consistent when rendering at 4K.
 pub fn render_background(time_sec: f64) -> Pixmap {
     let mut pixmap = Pixmap::new(WIDTH, HEIGHT).unwrap();
 
-    // Fill with dark background
     pixmap.fill(Color::from_rgba8(BG_COLOR[0], BG_COLOR[1], BG_COLOR[2], BG_COLOR[3]));
 
     let t = time_sec as f32;
@@ -72,8 +72,8 @@ pub fn render_background(time_sec: f64) -> Pixmap {
             &mut pixmap,
             cx,
             cy,
-            orb.radius_x,
-            orb.radius_y,
+            orb.radius_x * RESOLUTION_SCALE,
+            orb.radius_y * RESOLUTION_SCALE,
             orb.color,
         );
     }
