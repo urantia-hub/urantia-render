@@ -56,8 +56,9 @@ pub fn render_playlist_thumbnail_with_subtitle(
     }
 }
 
-/// Render a thumbnail image with 2.5x larger text for YouTube thumbnails.
-/// Measures total text height to vertically center the label + title block.
+/// Render a YouTube thumbnail: UrantiaHub concentric-rings logo on the left,
+/// big "PAPER N" label and paper title stacked on the right. Designed for
+/// browse-view legibility at mobile sizes.
 pub fn render_thumbnail(
     renderer: &mut TextRenderer,
     pixmap: &mut Pixmap,
@@ -66,25 +67,45 @@ pub fn render_thumbnail(
 ) {
     let h = HEIGHT as f32;
 
+    let logo_cx = 380.0;
+    let logo_cy = h / 2.0;
+    let logo_radius = 290.0;
+    render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
+
+    let text_x = 760.0;
+    let text_max_width = 1100.0;
+    let gap = 40.0;
+
     let label = if paper_id == "0" {
-        "Foreword".to_string()
+        "FOREWORD".to_string()
     } else {
-        format!("Paper {}", paper_id)
+        format!("PAPER {}", paper_id)
     };
 
-    // Measure heights to vertically center the whole block
-    let label_height = renderer.measure_text(&label, &TextStyle::thumbnail_label(0.0));
-    let title_height = renderer.measure_text(paper_title, &TextStyle::thumbnail_title(0.0));
-    let gap = 30.0; // space between label and title
-    let total_height = label_height + gap + title_height;
+    let number_measure = TextStyle::thumbnail_paper_number(text_x, 0.0, text_max_width);
+    let number_height = renderer.measure_text(&label, &number_measure);
 
+    let title_height = if paper_id == "0" {
+        0.0
+    } else {
+        let title_measure =
+            TextStyle::thumbnail_paper_title_right(text_x, 0.0, text_max_width);
+        renderer.measure_text(paper_title, &title_measure)
+    };
+
+    let effective_gap = if paper_id == "0" { 0.0 } else { gap };
+    let total_height = number_height + effective_gap + title_height;
     let start_y = (h - total_height) / 2.0;
 
-    let label_style = TextStyle::thumbnail_label(start_y);
-    renderer.render_text(pixmap, &label, &label_style);
+    let number_style = TextStyle::thumbnail_paper_number(text_x, start_y, text_max_width);
+    renderer.render_text(pixmap, &label, &number_style);
 
-    let title_style = TextStyle::thumbnail_title(start_y + label_height + gap);
-    renderer.render_text(pixmap, paper_title, &title_style);
+    if paper_id != "0" {
+        let title_y = start_y + number_height + gap;
+        let title_style =
+            TextStyle::thumbnail_paper_title_right(text_x, title_y, text_max_width);
+        renderer.render_text(pixmap, paper_title, &title_style);
+    }
 }
 
 /// Render intro card — "PAPER 1" label + title, centered on screen.
