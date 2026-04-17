@@ -138,10 +138,21 @@ pub fn render_intro_card(
         format!("Paper {}", paper_id)
     };
 
-    let label_style = TextStyle::paper_label(center_y - 48.0 * RESOLUTION_SCALE);
+    // Measure the stack (label + gap + title) and center it vertically.
+    let label_measure = TextStyle::paper_label(0.0);
+    let label_height = renderer.measure_text(&label, &label_measure);
+
+    let title_measure = TextStyle::paper_title(0.0);
+    let title_height = renderer.measure_text(paper_title, &title_measure);
+
+    let gap = 40.0 * RESOLUTION_SCALE;
+    let stack_h = label_height + gap + title_height;
+    let start_y = center_y - stack_h / 2.0;
+
+    let label_style = TextStyle::paper_label(start_y);
     renderer.render_text(pixmap, &label, &label_style);
 
-    let title_style = TextStyle::paper_title(center_y - 12.0 * RESOLUTION_SCALE);
+    let title_style = TextStyle::paper_title(start_y + label_height + gap);
     renderer.render_text(pixmap, paper_title, &title_style);
 }
 

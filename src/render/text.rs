@@ -193,14 +193,14 @@ impl TextStyle {
         }
     }
 
-    // --- Paper title (intro card): Lora SemiBold, base 72pt (scaled), centered ---
+    // --- Paper title (intro card): Lora SemiBold, base 120pt (scaled), centered ---
 
     pub fn paper_title(y: f32) -> Self {
-        let font_size = 72.0 * RESOLUTION_SCALE;
-        let max_width = 900.0 * RESOLUTION_SCALE;
+        let font_size = 120.0 * RESOLUTION_SCALE;
+        let max_width = 1400.0 * RESOLUTION_SCALE;
         Self {
             font_size,
-            line_height: font_size * 1.3,
+            line_height: font_size * 1.25,
             max_width,
             x: (WIDTH as f32 - max_width) / 2.0,
             y,
@@ -211,11 +211,11 @@ impl TextStyle {
         }
     }
 
-    // --- Paper label ("PAPER 1"): DM Sans, muted, base 32pt (scaled), centered ---
+    // --- Paper label ("PAPER 1"): DM Sans, muted, base 48pt (scaled), centered ---
 
     pub fn paper_label(y: f32) -> Self {
-        let font_size = 32.0 * RESOLUTION_SCALE;
-        let max_width = 400.0 * RESOLUTION_SCALE;
+        let font_size = 48.0 * RESOLUTION_SCALE;
+        let max_width = 500.0 * RESOLUTION_SCALE;
         Self {
             font_size,
             line_height: font_size * 1.4,

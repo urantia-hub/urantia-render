@@ -21,12 +21,36 @@ pub fn render_paper(
 
     let total_frames = manifest.total_duration_frames;
     let mut frames_written = 0u32;
+    let mut prev_end_frame = 0u32;
 
     for segment in &manifest.segments {
         let start_frame = segment.start_frame();
         let duration = segment.duration_frames();
 
+        // Emit background-only frames for any silence gap before this segment
+        // (gaps come from GAP_AFTER_INTRO / GAP_BETWEEN_PARAGRAPHS /
+        //  GAP_BEFORE_SECTION / GAP_AFTER_SECTION in build_manifest).
+        // Without this, the video is shorter than the audio and ffmpeg's
+        // -shortest flag truncates the audio, causing sync drift and cutoff.
+        if start_frame > prev_end_frame {
+            let mut gf = prev_end_frame;
+            while gf < start_frame {
+                if max_frames.is_some_and(|m| frames_written >= m) { break; }
+                let global_time = gf as f64 / FPS as f64;
+                let pixmap = crate::render::background::render_background(global_time);
+                let frame_data = pixmap.data();
+                let repeat = 3u32.min(start_frame - gf);
+                for _ in 0..repeat {
+                    if max_frames.is_some_and(|m| frames_written >= m) { break; }
+                    encoder.write_frame(frame_data)?;
+                    frames_written += 1;
+                }
+                gf += repeat;
+            }
+        }
+
         if duration == 0 {
+            prev_end_frame = start_frame;
             continue;
         }
 
@@ -72,6 +96,8 @@ pub fn render_paper(
             encoder.write_frame(pixmap.data())?;
             frames_written += 1;
         }
+
+        prev_end_frame = start_frame + duration;
 
         if max_frames.is_some_and(|m| frames_written >= m) { break; }
 

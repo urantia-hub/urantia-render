@@ -47,6 +47,9 @@ enum Commands {
         concurrency: usize,
         #[arg(long)]
         preview: bool,
+        /// Stop rendering after N seconds. Useful for dev iteration.
+        #[arg(long)]
+        max_seconds: Option<u32>,
         #[arg(long)]
         skip_existing: bool,
         /// Audio directory (supports nested {paperId}/ or flat tts-1-hd-nova-{id}.mp3 layout)
@@ -172,10 +175,11 @@ async fn main() -> Result<()> {
             output_dir,
             skip_existing,
             preview,
+            max_seconds,
             concurrency,
             audio_dir,
         } => {
-            cmd_render(&papers, &output_dir, skip_existing, preview, concurrency, audio_dir.as_deref()).await?;
+            cmd_render(&papers, &output_dir, skip_existing, preview, max_seconds, concurrency, audio_dir.as_deref()).await?;
         }
         Commands::Metadata {
             papers,
@@ -304,6 +308,7 @@ fn render_single_paper(
     audio_dir: &std::path::Path,
     skip_existing: bool,
     preview: bool,
+    max_seconds: Option<u32>,
 ) -> Result<()> {
     let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
     if !manifest_path.exists() {
@@ -343,7 +348,11 @@ fn render_single_paper(
     audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
 
     // Render frames + encode
-    let max_frames = if preview { Some(300) } else { None }; // ~10s preview
+    let max_frames = match (preview, max_seconds) {
+        (true, _) => Some(300),             // ~10s preview
+        (_, Some(s)) => Some(s * config::FPS), // explicit duration cap
+        _ => None,
+    };
     render::pipeline::render_paper(&manifest, &output_path, &wav_path, max_frames)?;
 
     // Clean up temp WAV
@@ -367,6 +376,7 @@ async fn cmd_render(
     output_dir: &PathBuf,
     skip_existing: bool,
     preview: bool,
+    max_seconds: Option<u32>,
     concurrency: usize,
     audio_dir_override: Option<&std::path::Path>,
 ) -> Result<()> {
@@ -402,6 +412,7 @@ async fn cmd_render(
                 &audio_dir,
                 skip_existing,
                 preview,
+                max_seconds,
             ) {
                 eprintln!("  Error rendering Paper {}: {}", paper_id, e);
             }
