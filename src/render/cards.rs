@@ -382,7 +382,7 @@ pub fn render_paragraph(
     let padding = 80.0 * RESOLUTION_SCALE;
     let max_text_height = h - padding * 2.0 - 40.0 * RESOLUTION_SCALE; // leave room for ref ID
 
-    // Default body is 48pt at the 1080p reference; scaled up at 4K.
+    // Body starts at 48pt (up from the old 30pt default) and scales with RESOLUTION_SCALE.
     let min_font_size = 28.0 * RESOLUTION_SCALE;
     let shrink_step = 2.0 * RESOLUTION_SCALE;
     let mut font_size = 48.0 * RESOLUTION_SCALE;
