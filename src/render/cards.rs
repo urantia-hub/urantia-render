@@ -124,10 +124,10 @@ pub fn render_intro_card(
         format!("Paper {}", paper_id)
     };
 
-    let label_style = TextStyle::paper_label(center_y - 48.0);
+    let label_style = TextStyle::paper_label(center_y - 48.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, &label, &label_style);
 
-    let title_style = TextStyle::paper_title(center_y - 12.0);
+    let title_style = TextStyle::paper_title(center_y - 12.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, paper_title, &title_style);
 }
 
@@ -138,7 +138,7 @@ pub fn render_section_card(
     section_title: &str,
 ) {
     let h = HEIGHT as f32;
-    let style = TextStyle::section_title(h / 2.0 - 30.0);
+    let style = TextStyle::section_title(h / 2.0 - 30.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, section_title, &style);
 }
 
@@ -154,13 +154,13 @@ pub fn render_outro_card(
     let center_y = h / 2.0;
 
     // Concentric circles logo above the text
-    let logo_radius = 56.0;
+    let logo_radius = 56.0 * RESOLUTION_SCALE;
     let logo_cx = w / 2.0;
-    let logo_cy = center_y - 65.0;
+    let logo_cy = center_y - 65.0 * RESOLUTION_SCALE;
     render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
 
     // "Urantia" (Lato Light) + "Hub" (Lato Bold) side by side
-    let text_y = logo_cy + logo_radius + 15.0;
+    let text_y = logo_cy + logo_radius + 15.0 * RESOLUTION_SCALE;
 
     let urantia_width = renderer.measure_text_width("Urantia", &TextStyle::outro_logo_light(0.0, 0.0));
     let hub_width = renderer.measure_text_width("Hub", &TextStyle::outro_logo_bold(0.0, 0.0));
@@ -171,12 +171,12 @@ pub fn render_outro_card(
     renderer.render_text(pixmap, "Urantia", &light_style);
 
     // Light weight sits higher — nudge "Hub" up to align baselines
-    let bold_style = TextStyle::outro_logo_bold(text_x + urantia_width, text_y - 5.0);
+    let bold_style = TextStyle::outro_logo_bold(text_x + urantia_width, text_y - 5.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, "Hub", &bold_style);
 
     // Subtitle below
     let subtitle_text = tagline.unwrap_or("urantiahub.com");
-    let subtitle_style = TextStyle::outro_subtitle(text_y + 62.0);
+    let subtitle_style = TextStyle::outro_subtitle(text_y + 62.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, subtitle_text, &subtitle_style);
 }
 
@@ -377,21 +377,23 @@ pub fn render_paragraph(
 ) {
     let w = WIDTH as f32;
     let h = HEIGHT as f32;
-    let text_block_width = 1100.0;
+    let text_block_width = 1100.0 * RESOLUTION_SCALE;
     let x = (w - text_block_width) / 2.0;
-    let padding = 80.0; // top + bottom padding
-    let max_text_height = h - padding * 2.0 - 40.0; // leave room for ref ID
+    let padding = 80.0 * RESOLUTION_SCALE;
+    let max_text_height = h - padding * 2.0 - 40.0 * RESOLUTION_SCALE; // leave room for ref ID
 
-    // Find a font size that fits (default body is 30px)
-    let mut font_size = 30.0_f32;
+    // Default body is 48pt at the 1080p reference; scaled up at 4K.
+    let min_font_size = 28.0 * RESOLUTION_SCALE;
+    let shrink_step = 2.0 * RESOLUTION_SCALE;
+    let mut font_size = 48.0 * RESOLUTION_SCALE;
     let mut text_height;
     loop {
         let measure_style = TextStyle::body_sized(0.0, 0.0, font_size);
         text_height = renderer.measure_text(text, &measure_style);
-        if text_height <= max_text_height || font_size <= 18.0 {
+        if text_height <= max_text_height || font_size <= min_font_size {
             break;
         }
-        font_size -= 2.0;
+        font_size -= shrink_step;
     }
 
     // Center vertically
@@ -405,6 +407,6 @@ pub fn render_paragraph(
     let ref_width = renderer.measure_text_width(reference_id, &ref_measure);
     let ref_x = x + text_block_width - ref_width;
 
-    let ref_style = TextStyle::reference_id(ref_x, y + rendered_height + 12.0);
+    let ref_style = TextStyle::reference_id(ref_x, y + rendered_height + 12.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, reference_id, &ref_style);
 }
