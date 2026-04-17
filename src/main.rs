@@ -637,18 +637,9 @@ async fn cmd_banner(output: &PathBuf) -> Result<()> {
 
     let mut renderer = render::text::TextRenderer::new();
 
-    const BW: u32 = 2560;
-    const BH: u32 = 1440;
-    let mut pixmap = tiny_skia::Pixmap::new(BW, BH).unwrap();
-    {
-        let data = pixmap.data_mut();
-        for i in (0..data.len()).step_by(4) {
-            data[i]     = config::BG_COLOR[0];
-            data[i + 1] = config::BG_COLOR[1];
-            data[i + 2] = config::BG_COLOR[2];
-            data[i + 3] = config::BG_COLOR[3];
-        }
-    }
+    // 2560×1440 banner with cosmic orbs. Scale 1.333 matches the 1920→2560
+    // ratio so the orbs fill the frame similarly to the 1080p thumbnails.
+    let mut pixmap = render::background::render_background_at(2560, 1440, 1.333, 2.5);
 
     render::cards::render_banner(&mut renderer, &mut pixmap);
     pixmap.save_png(output)?;
@@ -664,16 +655,11 @@ async fn cmd_channel_icon(output: &PathBuf, size: u32) -> Result<()> {
 
     println!("Rendering channel icon ({size}x{size})...");
 
-    let mut pixmap = tiny_skia::Pixmap::new(size, size).unwrap();
-    {
-        let data = pixmap.data_mut();
-        for i in (0..data.len()).step_by(4) {
-            data[i]     = config::BG_COLOR[0];
-            data[i + 1] = config::BG_COLOR[1];
-            data[i + 2] = config::BG_COLOR[2];
-            data[i + 3] = config::BG_COLOR[3];
-        }
-    }
+    // YouTube crops the profile icon to a circle, so orbs that drift beyond
+    // the inscribed circle are clipped anyway. Render with a subtle orb glow
+    // behind the logo for visual consistency with the banner/thumbnails.
+    let scale = size as f32 / 1920.0;
+    let mut pixmap = render::background::render_background_at(size, size, scale, 2.5);
 
     render::cards::render_channel_icon(&mut pixmap);
     pixmap.save_png(output)?;
@@ -685,34 +671,22 @@ async fn cmd_channel_icon(output: &PathBuf, size: u32) -> Result<()> {
 async fn cmd_playlist_thumbnails(output_dir: &PathBuf) -> Result<()> {
     std::fs::create_dir_all(output_dir)?;
 
-    println!("Rendering 5 playlist thumbnails (1920x1080)...");
+    println!("Rendering 5 playlist thumbnails (3840x2160)...");
 
     let mut renderer = render::text::TextRenderer::new();
 
-    let build_canvas = || -> tiny_skia::Pixmap {
-        let mut pixmap = tiny_skia::Pixmap::new(1920, 1080).unwrap();
-        {
-            let data = pixmap.data_mut();
-            for i in (0..data.len()).step_by(4) {
-                data[i]     = config::BG_COLOR[0];
-                data[i + 1] = config::BG_COLOR[1];
-                data[i + 2] = config::BG_COLOR[2];
-                data[i + 3] = config::BG_COLOR[3];
-            }
-        }
-        pixmap
-    };
-
     // Master playlist (all 197)
     {
-        let mut pixmap = build_canvas();
+        let mut pixmap = render::background::render_background_at(3840, 2160, 2.0, 2.5);
+        let mut content = tiny_skia::Pixmap::new(3840, 2160).unwrap();
         render::cards::render_playlist_thumbnail_with_subtitle(
             &mut renderer,
-            &mut pixmap,
+            &mut content,
             "",
             "All 197 Papers",
-            Some("Audio and text, read along"),
+            Some("Audio and text,\nread along"),
         );
+        render::compositor::composite(&mut pixmap, &content, 1.0);
         let out = output_dir.join("playlist-all.png");
         pixmap.save_png(&out)?;
         println!("  → {}", out.display());
@@ -725,9 +699,14 @@ async fn cmd_playlist_thumbnails(output_dir: &PathBuf) -> Result<()> {
         ("Part III", "The History\nof Urantia",               "playlist-part-3"),
         ("Part IV",  "The Life and Teachings\nof Jesus",      "playlist-part-4"),
     ];
-    for (label, title, file_stem) in parts.iter() {
-        let mut pixmap = build_canvas();
-        render::cards::render_playlist_thumbnail(&mut renderer, &mut pixmap, label, title);
+    // Use a staggered time_sec per part so the orbs are in a different
+    // position on each thumbnail — avoids all 4 parts looking identical.
+    for (i, (label, title, file_stem)) in parts.iter().enumerate() {
+        let time_sec = 2.5 + (i as f64) * 7.0;
+        let mut pixmap = render::background::render_background_at(3840, 2160, 2.0, time_sec);
+        let mut content = tiny_skia::Pixmap::new(3840, 2160).unwrap();
+        render::cards::render_playlist_thumbnail(&mut renderer, &mut content, label, title);
+        render::compositor::composite(&mut pixmap, &content, 1.0);
         let out = output_dir.join(format!("{}.png", file_stem));
         pixmap.save_png(&out)?;
         println!("  → {}", out.display());
@@ -751,21 +730,10 @@ async fn cmd_thumbnails(papers: &str, output_dir: &PathBuf) -> Result<()> {
         let json = resp.text().await?;
         let paper = data::paper::Paper::from_json(&json)?;
 
-        // Thumbnails are YouTube browse-view assets — keep at 1920×1080 regardless
-        // of the video canvas resolution. Build a dark fill directly rather than
-        // calling render_background (which uses config::WIDTH/HEIGHT and now
-        // produces 4K output).
-        let mut pixmap = tiny_skia::Pixmap::new(1920, 1080).unwrap();
-        {
-            let data = pixmap.data_mut();
-            for i in (0..data.len()).step_by(4) {
-                data[i]     = config::BG_COLOR[0];
-                data[i + 1] = config::BG_COLOR[1];
-                data[i + 2] = config::BG_COLOR[2];
-                data[i + 3] = config::BG_COLOR[3];
-            }
-        }
-        let mut content = tiny_skia::Pixmap::new(1920, 1080).unwrap();
+        // YouTube recommends 3840×2160 for custom thumbnails (with 16:9 aspect,
+        // under 2MB on mobile / 50MB on desktop). Render at 4K with orb background.
+        let mut pixmap = render::background::render_background_at(3840, 2160, 2.0, 2.5);
+        let mut content = tiny_skia::Pixmap::new(3840, 2160).unwrap();
         render::cards::render_thumbnail(&mut renderer, &mut content, &paper.paper_id, &paper.paper_title);
         render::compositor::composite(&mut pixmap, &content, 1.0);
 

@@ -336,10 +336,11 @@ impl TextStyle {
     // --- Paper thumbnail (redesigned): "PAPER 1" / "FOREWORD" in DM Sans Bold,
     //     left-aligned within the right-hand text column ---
 
-    pub fn thumbnail_paper_number(x: f32, y: f32, max_width: f32) -> Self {
+    pub fn thumbnail_paper_number(x: f32, y: f32, max_width: f32, scale: f32) -> Self {
+        let font_size = 160.0 * scale;
         Self {
-            font_size: 160.0,
-            line_height: 160.0 * 1.1,
+            font_size,
+            line_height: font_size * 1.1,
             max_width,
             x,
             y,
@@ -353,10 +354,11 @@ impl TextStyle {
 
     // --- Paper thumbnail (redesigned): paper title in Lora SemiBold, left-aligned ---
 
-    pub fn thumbnail_paper_title_right(x: f32, y: f32, max_width: f32) -> Self {
+    pub fn thumbnail_paper_title_right(x: f32, y: f32, max_width: f32, scale: f32) -> Self {
+        let font_size = 130.0 * scale;
         Self {
-            font_size: 130.0,
-            line_height: 130.0 * 1.15,
+            font_size,
+            line_height: font_size * 1.15,
             max_width,
             x,
             y,

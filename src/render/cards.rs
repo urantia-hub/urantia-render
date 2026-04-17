@@ -1,4 +1,4 @@
-use tiny_skia::Pixmap;
+use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 use crate::config::*;
 use crate::render::text::{TextRenderer, TextStyle};
 
@@ -21,32 +21,29 @@ pub fn render_playlist_thumbnail_with_subtitle(
     title: &str,
     subtitle: Option<&str>,
 ) {
-    // Playlist thumbnails ship at 1920×1080 (YouTube browse assets), same as
-    // per-paper thumbnails. Read dimensions from the pixmap so the layout stays
-    // correct regardless of the video config canvas size.
+    // Layout designed at 1920×1080 reference; scale with pixmap dimensions.
+    let scale = pixmap.width() as f32 / 1920.0;
     let h = pixmap.height() as f32;
 
-    // Logo on the left.
-    let logo_cx = 380.0;
+    let logo_cx = 380.0 * scale;
     let logo_cy = h / 2.0;
-    let logo_radius = 290.0;
+    let logo_radius = 290.0 * scale;
     render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
 
-    // Text column on the right.
-    let text_x = 760.0;
-    let text_max_width = 1100.0;
-    let gap = 40.0;
+    let text_x = 720.0 * scale;
+    let text_max_width = 1160.0 * scale;
+    let gap = 40.0 * scale;
 
     let label_or_master = if label.is_empty() {
-        "THE URANTIA PAPERS".to_string()
+        "URANTIA PAPERS".to_string()
     } else {
         label.to_uppercase()
     };
 
-    let label_measure = TextStyle::thumbnail_paper_number(text_x, 0.0, text_max_width);
+    let label_measure = TextStyle::thumbnail_paper_number(text_x, 0.0, text_max_width, scale);
     let label_height = renderer.measure_text(&label_or_master, &label_measure);
 
-    let title_measure = TextStyle::thumbnail_paper_title_right(text_x, 0.0, text_max_width);
+    let title_measure = TextStyle::thumbnail_paper_title_right(text_x, 0.0, text_max_width, scale);
     let title_height = renderer.measure_text(title, &title_measure);
 
     let subtitle_height = subtitle
@@ -57,16 +54,16 @@ pub fn render_playlist_thumbnail_with_subtitle(
     let total_height = label_height + gap + title_height + subtitle_gap + subtitle_height;
     let start_y = (h - total_height) / 2.0;
 
-    let label_style = TextStyle::thumbnail_paper_number(text_x, start_y, text_max_width);
+    let label_style = TextStyle::thumbnail_paper_number(text_x, start_y, text_max_width, scale);
     renderer.render_text(pixmap, &label_or_master, &label_style);
 
     let title_y = start_y + label_height + gap;
-    let title_style = TextStyle::thumbnail_paper_title_right(text_x, title_y, text_max_width);
+    let title_style = TextStyle::thumbnail_paper_title_right(text_x, title_y, text_max_width, scale);
     renderer.render_text(pixmap, title, &title_style);
 
     if let Some(sub) = subtitle {
         let sub_y = title_y + title_height + subtitle_gap;
-        let sub_style = TextStyle::thumbnail_paper_title_right(text_x, sub_y, text_max_width);
+        let sub_style = TextStyle::thumbnail_paper_title_right(text_x, sub_y, text_max_width, scale);
         renderer.render_text(pixmap, sub, &sub_style);
     }
 }
@@ -80,16 +77,18 @@ pub fn render_thumbnail(
     paper_id: &str,
     paper_title: &str,
 ) {
+    // Layout is designed at 1920×1080; scale up for 4K thumbnails.
+    let scale = pixmap.width() as f32 / 1920.0;
     let h = pixmap.height() as f32;
 
-    let logo_cx = 380.0;
+    let logo_cx = 380.0 * scale;
     let logo_cy = h / 2.0;
-    let logo_radius = 290.0;
+    let logo_radius = 290.0 * scale;
     render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
 
-    let text_x = 760.0;
-    let text_max_width = 1100.0;
-    let gap = 40.0;
+    let text_x = 720.0 * scale;
+    let text_max_width = 1160.0 * scale;
+    let gap = 40.0 * scale;
 
     let label = if paper_id == "0" {
         "FOREWORD".to_string()
@@ -97,14 +96,14 @@ pub fn render_thumbnail(
         format!("PAPER {}", paper_id)
     };
 
-    let number_measure = TextStyle::thumbnail_paper_number(text_x, 0.0, text_max_width);
+    let number_measure = TextStyle::thumbnail_paper_number(text_x, 0.0, text_max_width, scale);
     let number_height = renderer.measure_text(&label, &number_measure);
 
     let title_height = if paper_id == "0" {
         0.0
     } else {
         let title_measure =
-            TextStyle::thumbnail_paper_title_right(text_x, 0.0, text_max_width);
+            TextStyle::thumbnail_paper_title_right(text_x, 0.0, text_max_width, scale);
         renderer.measure_text(paper_title, &title_measure)
     };
 
@@ -112,13 +111,13 @@ pub fn render_thumbnail(
     let total_height = number_height + effective_gap + title_height;
     let start_y = (h - total_height) / 2.0;
 
-    let number_style = TextStyle::thumbnail_paper_number(text_x, start_y, text_max_width);
+    let number_style = TextStyle::thumbnail_paper_number(text_x, start_y, text_max_width, scale);
     renderer.render_text(pixmap, &label, &number_style);
 
     if paper_id != "0" {
         let title_y = start_y + number_height + gap;
         let title_style =
-            TextStyle::thumbnail_paper_title_right(text_x, title_y, text_max_width);
+            TextStyle::thumbnail_paper_title_right(text_x, title_y, text_max_width, scale);
         renderer.render_text(pixmap, paper_title, &title_style);
     }
 }
@@ -199,10 +198,14 @@ pub fn render_outro_card(
 /// `cx, cy` is the logo center. `scale` is the outer radius in pixels
 /// (pass 300 for a ~600 px diameter logo; 400 for ~800 px diameter).
 /// 7 circles: 6 stroked rings (increasing opacity) + 1 filled center dot.
+///
+/// Uses tiny-skia's anti-aliased path stroker, which produces clean edges
+/// against any background (flat or gradient).
 pub fn render_concentric_logo(pixmap: &mut Pixmap, cx: f32, cy: f32, scale: f32) {
+    use tiny_skia::{LineCap, Stroke};
+
     // Original SVG is 512x512 with circles centered at 256,256.
-    // We scale everything relative to our target radius.
-    let s = scale / 256.0; // scale factor from SVG coords to our size
+    let s = scale / 256.0;
 
     struct Ring {
         radius: f32,
@@ -219,94 +222,34 @@ pub fn render_concentric_logo(pixmap: &mut Pixmap, cx: f32, cy: f32, scale: f32)
         Ring { radius: 51.2,  stroke_width: 17.6, opacity: 0.95 },
     ];
 
-    let pw = pixmap.width() as usize;
-    let ph = pixmap.height() as usize;
-    let data = pixmap.data_mut();
-
-    // Draw each ring as an anti-aliased circle stroke
     for ring in &rings {
         let r = ring.radius * s;
-        let sw = ring.stroke_width * s;
-        let inner = r - sw / 2.0;
-        let outer = r + sw / 2.0;
-        let alpha = ring.opacity;
+        let path = PathBuilder::from_circle(cx, cy, r)
+            .expect("failed to build ring path");
 
-        let x_min = ((cx - outer - 1.0) as usize).max(0);
-        let x_max = ((cx + outer + 2.0) as usize).min(pw);
-        let y_min = ((cy - outer - 1.0) as usize).max(0);
-        let y_max = ((cy + outer + 2.0) as usize).min(ph);
+        let mut paint = Paint::default();
+        paint.set_color(Color::from_rgba(1.0, 1.0, 1.0, ring.opacity).unwrap());
+        paint.anti_alias = true;
 
-        for y in y_min..y_max {
-            for x in x_min..x_max {
-                let dx = x as f32 - cx;
-                let dy = y as f32 - cy;
-                let dist = (dx * dx + dy * dy).sqrt();
+        let stroke = Stroke {
+            width: ring.stroke_width * s,
+            line_cap: LineCap::Butt,
+            ..Stroke::default()
+        };
 
-                // Anti-aliased ring: full opacity between inner and outer,
-                // fading at the edges
-                let coverage = if dist < inner - 0.5 || dist > outer + 0.5 {
-                    0.0
-                } else if dist < inner + 0.5 {
-                    dist - (inner - 0.5) // fade in at inner edge
-                } else if dist > outer - 0.5 {
-                    (outer + 0.5) - dist // fade out at outer edge
-                } else {
-                    1.0
-                };
-
-                let a = alpha * coverage;
-                if a < 0.001 { continue; }
-
-                let idx = (y * pw + x) * 4;
-                let dst_r = data[idx] as f32 / 255.0;
-                let dst_g = data[idx + 1] as f32 / 255.0;
-                let dst_b = data[idx + 2] as f32 / 255.0;
-
-                // White circle composited (must set alpha for compositor)
-                data[idx]     = ((dst_r * (1.0 - a) + a) * 255.0) as u8;
-                data[idx + 1] = ((dst_g * (1.0 - a) + a) * 255.0) as u8;
-                data[idx + 2] = ((dst_b * (1.0 - a) + a) * 255.0) as u8;
-                let dst_a = data[idx + 3] as f32 / 255.0;
-                data[idx + 3] = ((dst_a + a * (1.0 - dst_a)).min(1.0) * 255.0) as u8;
-            }
-        }
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 
     // Center filled dot
     let dot_r = 22.4 * s;
-    let x_min = ((cx - dot_r - 1.0) as usize).max(0);
-    let x_max = ((cx + dot_r + 2.0) as usize).min(pw);
-    let y_min = ((cy - dot_r - 1.0) as usize).max(0);
-    let y_max = ((cy + dot_r + 2.0) as usize).min(ph);
+    let dot_path = PathBuilder::from_circle(cx, cy, dot_r)
+        .expect("failed to build center dot path");
 
-    for y in y_min..y_max {
-        for x in x_min..x_max {
-            let dx = x as f32 - cx;
-            let dy = y as f32 - cy;
-            let dist = (dx * dx + dy * dy).sqrt();
+    let mut dot_paint = Paint::default();
+    dot_paint.set_color(Color::WHITE);
+    dot_paint.anti_alias = true;
 
-            let a = if dist > dot_r + 0.5 {
-                0.0
-            } else if dist > dot_r - 0.5 {
-                (dot_r + 0.5) - dist
-            } else {
-                1.0
-            };
-
-            if a < 0.001 { continue; }
-
-            let idx = (y * pw + x) * 4;
-            let dst_r = data[idx] as f32 / 255.0;
-            let dst_g = data[idx + 1] as f32 / 255.0;
-            let dst_b = data[idx + 2] as f32 / 255.0;
-
-            data[idx]     = ((dst_r * (1.0 - a) + a) * 255.0) as u8;
-            data[idx + 1] = ((dst_g * (1.0 - a) + a) * 255.0) as u8;
-            data[idx + 2] = ((dst_b * (1.0 - a) + a) * 255.0) as u8;
-            let dst_a = data[idx + 3] as f32 / 255.0;
-            data[idx + 3] = ((dst_a + a * (1.0 - dst_a)).min(1.0) * 255.0) as u8;
-        }
-    }
+    pixmap.fill_path(&dot_path, &dot_paint, FillRule::Winding, Transform::identity(), None);
 }
 
 /// Render the YouTube channel banner at 2560×1440 (passed in via `pixmap`).

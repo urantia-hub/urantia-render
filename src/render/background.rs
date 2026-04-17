@@ -54,26 +54,34 @@ const ORBS: [Orb; 3] = [
     },
 ];
 
-/// Render the animated glow background at a given time (seconds).
-/// Returns a WIDTH×HEIGHT RGBA pixmap. Orb radii scale with RESOLUTION_SCALE
-/// so the look stays consistent when rendering at 4K.
+/// Render the animated glow background at a given time (seconds) to the
+/// video canvas (`WIDTH × HEIGHT`, `RESOLUTION_SCALE` applied to orb radii).
 pub fn render_background(time_sec: f64) -> Pixmap {
-    let mut pixmap = Pixmap::new(WIDTH, HEIGHT).unwrap();
+    render_background_at(WIDTH, HEIGHT, RESOLUTION_SCALE, time_sec)
+}
+
+/// Render the animated glow background at a given time (seconds) to an
+/// arbitrary-sized canvas. `scale` multiplies orb radii — pass 1.0 for a
+/// 1920×1080 target, `RESOLUTION_SCALE` for the main video canvas.
+pub fn render_background_at(width: u32, height: u32, scale: f32, time_sec: f64) -> Pixmap {
+    let mut pixmap = Pixmap::new(width, height).unwrap();
 
     pixmap.fill(Color::from_rgba8(BG_COLOR[0], BG_COLOR[1], BG_COLOR[2], BG_COLOR[3]));
 
     let t = time_sec as f32;
+    let w = width as f32;
+    let h = height as f32;
 
     for orb in &ORBS {
-        let cx = (0.5 + orb.x_amp * (t * orb.x_freq + orb.x_phase).sin()) * WIDTH as f32;
-        let cy = (0.5 + orb.y_amp * (t * orb.y_freq + orb.y_phase).cos()) * HEIGHT as f32;
+        let cx = (0.5 + orb.x_amp * (t * orb.x_freq + orb.x_phase).sin()) * w;
+        let cy = (0.5 + orb.y_amp * (t * orb.y_freq + orb.y_phase).cos()) * h;
 
         render_soft_ellipse(
             &mut pixmap,
             cx,
             cy,
-            orb.radius_x * RESOLUTION_SCALE,
-            orb.radius_y * RESOLUTION_SCALE,
+            orb.radius_x * scale,
+            orb.radius_y * scale,
             orb.color,
         );
     }
@@ -91,9 +99,9 @@ fn render_soft_ellipse(
     ry: f32,
     color: [f32; 4],
 ) {
+    let width = pixmap.width() as usize;
+    let height = pixmap.height() as usize;
     let data = pixmap.data_mut();
-    let width = WIDTH as usize;
-    let height = HEIGHT as usize;
 
     // Only iterate over the bounding box of the ellipse
     let x_min = ((cx - rx * 1.5) as usize).max(0);
