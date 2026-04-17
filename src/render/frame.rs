@@ -175,39 +175,4 @@ mod tests {
         pixmap.save_png("output/test_long_paragraph.png").unwrap();
     }
 
-    #[test]
-    fn test_render_playlist_thumbnails() {
-        use crate::render::cards::{render_playlist_thumbnail, render_playlist_thumbnail_with_subtitle};
-
-        let mut renderer = TextRenderer::new();
-
-        // Main playlist — title + subtitle
-        {
-            let mut pixmap = crate::render::background::render_background(5.0);
-            let mut content = tiny_skia::Pixmap::new(WIDTH, HEIGHT).unwrap();
-            render_playlist_thumbnail_with_subtitle(
-                &mut renderer, &mut content,
-                "", "The Urantia Papers",
-                Some("197 Papers. Listen and read along."),
-            );
-            crate::render::compositor::composite(&mut pixmap, &content, 1.0);
-            pixmap.save_png("output/thumbnails/playlist-all.png").unwrap();
-        }
-
-        // Part playlists — label + title
-        let parts = vec![
-            ("Part I", "The Central and\nSuperuniverses", "playlist-part-1"),
-            ("Part II", "The Local Universe", "playlist-part-2"),
-            ("Part III", "The History\nof Urantia", "playlist-part-3"),
-            ("Part IV", "The Life and Teachings\nof Jesus", "playlist-part-4"),
-        ];
-
-        for (label, title, filename) in &parts {
-            let mut pixmap = crate::render::background::render_background(5.0);
-            let mut content = tiny_skia::Pixmap::new(WIDTH, HEIGHT).unwrap();
-            render_playlist_thumbnail(&mut renderer, &mut content, label, title);
-            crate::render::compositor::composite(&mut pixmap, &content, 1.0);
-            pixmap.save_png(&format!("output/thumbnails/{}.png", filename)).unwrap();
-        }
-    }
 }

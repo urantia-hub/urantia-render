@@ -21,38 +21,53 @@ pub fn render_playlist_thumbnail_with_subtitle(
     title: &str,
     subtitle: Option<&str>,
 ) {
-    let h = HEIGHT as f32;
-    let gap = 30.0;
+    // Playlist thumbnails ship at 1920×1080 (YouTube browse assets), same as
+    // per-paper thumbnails. Read dimensions from the pixmap so the layout stays
+    // correct regardless of the video config canvas size.
+    let h = pixmap.height() as f32;
 
-    if label.is_empty() {
-        // Title + subtitle layout (for main playlist)
-        let title_height = renderer.measure_text(title, &TextStyle::thumbnail_title(0.0));
-        let sub_height = subtitle.map(|s| renderer.measure_text(s, &TextStyle::thumbnail_label(0.0))).unwrap_or(0.0);
-        let sub_gap = if subtitle.is_some() { gap } else { 0.0 };
-        let total_height = title_height + sub_gap + sub_height;
+    // Logo on the left.
+    let logo_cx = 380.0;
+    let logo_cy = h / 2.0;
+    let logo_radius = 290.0;
+    render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
 
-        let start_y = (h - total_height) / 2.0;
+    // Text column on the right.
+    let text_x = 760.0;
+    let text_max_width = 1100.0;
+    let gap = 40.0;
 
-        let title_style = TextStyle::thumbnail_title(start_y);
-        renderer.render_text(pixmap, title, &title_style);
-
-        if let Some(sub) = subtitle {
-            let sub_style = TextStyle::thumbnail_label(start_y + title_height + sub_gap);
-            renderer.render_text(pixmap, sub, &sub_style);
-        }
+    let label_or_master = if label.is_empty() {
+        "THE URANTIA PAPERS".to_string()
     } else {
-        // Label + title layout (for Part playlists)
-        let label_height = renderer.measure_text(label, &TextStyle::thumbnail_label(0.0));
-        let title_height = renderer.measure_text(title, &TextStyle::thumbnail_title(0.0));
-        let total_height = label_height + gap + title_height;
+        label.to_uppercase()
+    };
 
-        let start_y = (h - total_height) / 2.0;
+    let label_measure = TextStyle::thumbnail_paper_number(text_x, 0.0, text_max_width);
+    let label_height = renderer.measure_text(&label_or_master, &label_measure);
 
-        let label_style = TextStyle::thumbnail_label(start_y);
-        renderer.render_text(pixmap, label, &label_style);
+    let title_measure = TextStyle::thumbnail_paper_title_right(text_x, 0.0, text_max_width);
+    let title_height = renderer.measure_text(title, &title_measure);
 
-        let title_style = TextStyle::thumbnail_title(start_y + label_height + gap);
-        renderer.render_text(pixmap, title, &title_style);
+    let subtitle_height = subtitle
+        .map(|s| renderer.measure_text(s, &title_measure))
+        .unwrap_or(0.0);
+    let subtitle_gap = if subtitle.is_some() { gap } else { 0.0 };
+
+    let total_height = label_height + gap + title_height + subtitle_gap + subtitle_height;
+    let start_y = (h - total_height) / 2.0;
+
+    let label_style = TextStyle::thumbnail_paper_number(text_x, start_y, text_max_width);
+    renderer.render_text(pixmap, &label_or_master, &label_style);
+
+    let title_y = start_y + label_height + gap;
+    let title_style = TextStyle::thumbnail_paper_title_right(text_x, title_y, text_max_width);
+    renderer.render_text(pixmap, title, &title_style);
+
+    if let Some(sub) = subtitle {
+        let sub_y = title_y + title_height + subtitle_gap;
+        let sub_style = TextStyle::thumbnail_paper_title_right(text_x, sub_y, text_max_width);
+        renderer.render_text(pixmap, sub, &sub_style);
     }
 }
 

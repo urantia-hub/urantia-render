@@ -148,5 +148,8 @@ urantia-render upload --papers 0-196
 - [ ] Channel banner: generate with `urantia-render banner --output output/banner.png` (2560×1440)
 - [ ] Channel trailer: Set in Customization > Layout
 - [ ] Playlist: "The Urantia Papers — Full Audio" with all papers in order
+- [ ] Playlist thumbnails: generate all 5 with `urantia-render playlist-thumbnails`
+  - `output/thumbnails/playlist-all.png` for the master "All Papers" playlist
+  - `output/thumbnails/playlist-part-1.png` through `-4.png` for per-part playlists
 - [ ] Channel description
 - [ ] Links: urantiahub.com, urantia.dev

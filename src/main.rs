@@ -103,6 +103,11 @@ enum Commands {
         #[arg(long, default_value_t = 1024)]
         size: u32,
     },
+    /// Render the 5 YouTube playlist thumbnails (master + Parts I-IV)
+    PlaylistThumbnails {
+        #[arg(long, default_value = "./output/thumbnails")]
+        output_dir: PathBuf,
+    },
     /// Render channel trailer (~60s)
     Trailer {
         #[arg(long, default_value = "./output/videos/trailer.mp4")]
@@ -204,6 +209,7 @@ async fn main() -> Result<()> {
         Commands::ChannelIcon { output, size } => {
             cmd_channel_icon(&output, size).await?;
         }
+        Commands::PlaylistThumbnails { output_dir } => cmd_playlist_thumbnails(&output_dir).await?,
         Commands::Trailer {
             output,
             output_dir,
@@ -673,6 +679,61 @@ async fn cmd_channel_icon(output: &PathBuf, size: u32) -> Result<()> {
     pixmap.save_png(output)?;
 
     println!("  → {}", output.display());
+    Ok(())
+}
+
+async fn cmd_playlist_thumbnails(output_dir: &PathBuf) -> Result<()> {
+    std::fs::create_dir_all(output_dir)?;
+
+    println!("Rendering 5 playlist thumbnails (1920x1080)...");
+
+    let mut renderer = render::text::TextRenderer::new();
+
+    let build_canvas = || -> tiny_skia::Pixmap {
+        let mut pixmap = tiny_skia::Pixmap::new(1920, 1080).unwrap();
+        {
+            let data = pixmap.data_mut();
+            for i in (0..data.len()).step_by(4) {
+                data[i]     = config::BG_COLOR[0];
+                data[i + 1] = config::BG_COLOR[1];
+                data[i + 2] = config::BG_COLOR[2];
+                data[i + 3] = config::BG_COLOR[3];
+            }
+        }
+        pixmap
+    };
+
+    // Master playlist (all 197)
+    {
+        let mut pixmap = build_canvas();
+        render::cards::render_playlist_thumbnail_with_subtitle(
+            &mut renderer,
+            &mut pixmap,
+            "",
+            "All 197 Papers",
+            Some("Audio and text, read along"),
+        );
+        let out = output_dir.join("playlist-all.png");
+        pixmap.save_png(&out)?;
+        println!("  → {}", out.display());
+    }
+
+    // Parts I–IV
+    let parts = [
+        ("Part I",   "The Central and\nSuperuniverses",      "playlist-part-1"),
+        ("Part II",  "The Local Universe",                    "playlist-part-2"),
+        ("Part III", "The History\nof Urantia",               "playlist-part-3"),
+        ("Part IV",  "The Life and Teachings\nof Jesus",      "playlist-part-4"),
+    ];
+    for (label, title, file_stem) in parts.iter() {
+        let mut pixmap = build_canvas();
+        render::cards::render_playlist_thumbnail(&mut renderer, &mut pixmap, label, title);
+        let out = output_dir.join(format!("{}.png", file_stem));
+        pixmap.save_png(&out)?;
+        println!("  → {}", out.display());
+    }
+
+    println!("Done!");
     Ok(())
 }
 
