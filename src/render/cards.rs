@@ -304,39 +304,40 @@ pub fn render_banner(renderer: &mut TextRenderer, pixmap: &mut Pixmap) {
     let w = pixmap.width() as f32;
     let h = pixmap.height() as f32;
 
-    let safe_w = 1546.0;
-    let safe_h = 423.0;
+    // YouTube "all devices" safe area — content here is visible on mobile too.
+    // 1235×338 centered, per YouTube channel banner spec.
+    let safe_w = 1235.0;
+    let safe_h = 338.0;
     let safe_x = (w - safe_w) / 2.0;
     let safe_y = (h - safe_h) / 2.0;
 
-    let logo_cx = safe_x + 210.0;
+    let logo_cx = safe_x + 155.0;
     let logo_cy = safe_y + safe_h / 2.0;
-    let logo_radius = 210.0;
+    let logo_radius = 155.0;
     render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
 
-    let text_x = safe_x + 480.0;
+    let text_x = safe_x + 360.0;
 
     let light_measure = TextStyle::banner_wordmark_light(0.0, 0.0);
-    let bold_measure = TextStyle::banner_wordmark_bold(0.0, 0.0);
     let urantia_w = renderer.measure_text_width("Urantia", &light_measure);
-    let wordmark_h = 220.0 * 1.1;
+    let wordmark_h = 170.0 * 1.1;
 
     let tagline = "All 197 Urantia Papers. Audio and text.";
     let tagline_measure = TextStyle::banner_tagline(text_x, 0.0);
     let tagline_h = renderer.measure_text(tagline, &tagline_measure);
 
     let url = "urantiahub.com";
-    let url_h = 48.0 * 1.3;
+    let url_h = 34.0 * 1.3;
 
-    let gap1 = 18.0;
-    let gap2 = 24.0;
+    let gap1 = 14.0;
+    let gap2 = 18.0;
     let stack_h = wordmark_h + gap1 + tagline_h + gap2 + url_h;
     let stack_top = safe_y + (safe_h - stack_h) / 2.0;
 
     let wordmark_x = text_x;
     let light = TextStyle::banner_wordmark_light(wordmark_x, stack_top);
     renderer.render_text(pixmap, "Urantia", &light);
-    let bold = TextStyle::banner_wordmark_bold(wordmark_x + urantia_w, stack_top - 8.0);
+    let bold = TextStyle::banner_wordmark_bold(wordmark_x + urantia_w, stack_top);
     renderer.render_text(pixmap, "Hub", &bold);
 
     let tagline_y = stack_top + wordmark_h + gap1;

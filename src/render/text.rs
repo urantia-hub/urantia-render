@@ -336,8 +336,9 @@ impl TextStyle {
             max_width,
             x,
             y,
-            color: [240, 180, 90, 255],
-            font_family: Family::Name("DM Sans"),
+            // Classic gold (#D4A84A) — warmer and more restrained than a yellow-gold
+            color: [212, 168, 74, 255],
+            font_family: Family::Name("Lato"),
             weight: Weight::BOLD,
             center: false,
         }
@@ -363,9 +364,9 @@ impl TextStyle {
 
     pub fn banner_wordmark_light(x: f32, y: f32) -> Self {
         Self {
-            font_size: 220.0,
-            line_height: 220.0 * 1.1,
-            max_width: 1200.0,
+            font_size: 170.0,
+            line_height: 170.0 * 1.1,
+            max_width: 900.0,
             x,
             y,
             color: TEXT_COLOR,
@@ -377,9 +378,9 @@ impl TextStyle {
 
     pub fn banner_wordmark_bold(x: f32, y: f32) -> Self {
         Self {
-            font_size: 220.0,
-            line_height: 220.0 * 1.1,
-            max_width: 700.0,
+            font_size: 170.0,
+            line_height: 170.0 * 1.1,
+            max_width: 500.0,
             x,
             y,
             color: TEXT_COLOR,
@@ -393,9 +394,9 @@ impl TextStyle {
 
     pub fn banner_tagline(x: f32, y: f32) -> Self {
         Self {
-            font_size: 70.0,
-            line_height: 70.0 * 1.3,
-            max_width: 2000.0,
+            font_size: 44.0,
+            line_height: 44.0 * 1.3,
+            max_width: 1000.0,
             x,
             y,
             color: TEXT_COLOR,
@@ -409,12 +410,12 @@ impl TextStyle {
 
     pub fn banner_url(x: f32, y: f32) -> Self {
         Self {
-            font_size: 48.0,
-            line_height: 48.0 * 1.3,
-            max_width: 800.0,
+            font_size: 34.0,
+            line_height: 34.0 * 1.3,
+            max_width: 600.0,
             x,
             y,
-            color: [240, 180, 90, 255],
+            color: [212, 168, 74, 255],
             font_family: Family::Name("DM Sans"),
             weight: Weight::MEDIUM,
             center: false,
