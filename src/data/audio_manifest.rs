@@ -43,3 +43,30 @@ impl AudioManifest {
         self.data.len()
     }
 }
+
+#[cfg(test)]
+impl AudioManifest {
+    /// Build a test AudioManifest from a map of globalId → duration (seconds).
+    /// Only the duration is populated; other AudioEntry fields are None.
+    pub fn from_durations_for_test(durations: HashMap<String, f64>) -> Self {
+        let mut data: HashMap<String, HashMap<String, HashMap<String, AudioEntry>>> =
+            HashMap::new();
+        for (global_id, dur) in durations {
+            let mut voice_map = HashMap::new();
+            voice_map.insert(
+                crate::config::AUDIO_VOICE.to_string(),
+                AudioEntry {
+                    format: None,
+                    url: None,
+                    duration: Some(dur),
+                    bitrate: None,
+                    file_size: None,
+                },
+            );
+            let mut model_map = HashMap::new();
+            model_map.insert(crate::config::AUDIO_MODEL.to_string(), voice_map);
+            data.insert(global_id, model_map);
+        }
+        Self { data }
+    }
+}
