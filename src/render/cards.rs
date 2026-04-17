@@ -294,6 +294,74 @@ pub fn render_concentric_logo(pixmap: &mut Pixmap, cx: f32, cy: f32, scale: f32)
     }
 }
 
+/// Render the YouTube channel banner at 2560×1440 (passed in via `pixmap`).
+///
+/// Layout centered in the 1546×423 safe area:
+///   [Logo 420 diameter]  |  UrantiaHub (220 pt wordmark)
+///                        |  All 197 Urantia Papers. Audio and text.
+///                        |  urantiahub.com
+pub fn render_banner(renderer: &mut TextRenderer, pixmap: &mut Pixmap) {
+    let w = pixmap.width() as f32;
+    let h = pixmap.height() as f32;
+
+    let safe_w = 1546.0;
+    let safe_h = 423.0;
+    let safe_x = (w - safe_w) / 2.0;
+    let safe_y = (h - safe_h) / 2.0;
+
+    let logo_cx = safe_x + 210.0;
+    let logo_cy = safe_y + safe_h / 2.0;
+    let logo_radius = 210.0;
+    render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
+
+    let text_x = safe_x + 480.0;
+
+    let light_measure = TextStyle::banner_wordmark_light(0.0, 0.0);
+    let bold_measure = TextStyle::banner_wordmark_bold(0.0, 0.0);
+    let urantia_w = renderer.measure_text_width("Urantia", &light_measure);
+    let wordmark_h = 220.0 * 1.1;
+
+    let tagline = "All 197 Urantia Papers. Audio and text.";
+    let tagline_measure = TextStyle::banner_tagline(text_x, 0.0);
+    let tagline_h = renderer.measure_text(tagline, &tagline_measure);
+
+    let url = "urantiahub.com";
+    let url_h = 48.0 * 1.3;
+
+    let gap1 = 18.0;
+    let gap2 = 24.0;
+    let stack_h = wordmark_h + gap1 + tagline_h + gap2 + url_h;
+    let stack_top = safe_y + (safe_h - stack_h) / 2.0;
+
+    let wordmark_x = text_x;
+    let light = TextStyle::banner_wordmark_light(wordmark_x, stack_top);
+    renderer.render_text(pixmap, "Urantia", &light);
+    let bold = TextStyle::banner_wordmark_bold(wordmark_x + urantia_w, stack_top - 8.0);
+    renderer.render_text(pixmap, "Hub", &bold);
+
+    let tagline_y = stack_top + wordmark_h + gap1;
+    let tag = TextStyle::banner_tagline(text_x, tagline_y);
+    renderer.render_text(pixmap, tagline, &tag);
+
+    let url_y = tagline_y + tagline_h + gap2;
+    let url_style = TextStyle::banner_url(text_x, url_y);
+    renderer.render_text(pixmap, url, &url_style);
+}
+
+/// Render a YouTube channel profile icon: logo centered on a dark solid
+/// background. Sized by pixmap dimensions (recommended 1024×1024).
+/// YouTube auto-crops to a circle, so all content stays within the inscribed
+/// circle (diameter ≈ pixmap min dimension).
+pub fn render_channel_icon(pixmap: &mut Pixmap) {
+    let w = pixmap.width() as f32;
+    let h = pixmap.height() as f32;
+    let cx = w / 2.0;
+    let cy = h / 2.0;
+
+    let logo_radius = (w.min(h) / 2.0) * 0.82;
+    render_concentric_logo(pixmap, cx, cy, logo_radius);
+}
+
 /// Render paragraph text + reference ID.
 /// Text block is vertically centered on screen. If text would overflow,
 /// font size is progressively reduced until it fits (safety net — the text

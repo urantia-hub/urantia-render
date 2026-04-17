@@ -91,6 +91,18 @@ enum Commands {
         #[arg(long, default_value = "./output/thumbnails")]
         output_dir: PathBuf,
     },
+    /// Render the YouTube channel banner (2560x1440 PNG)
+    Banner {
+        #[arg(long, default_value = "./output/banner.png")]
+        output: PathBuf,
+    },
+    /// Render the YouTube channel profile picture
+    ChannelIcon {
+        #[arg(long, default_value = "./output/channel-icon.png")]
+        output: PathBuf,
+        #[arg(long, default_value_t = 1024)]
+        size: u32,
+    },
     /// Render channel trailer (~60s)
     Trailer {
         #[arg(long, default_value = "./output/videos/trailer.mp4")]
@@ -185,6 +197,12 @@ async fn main() -> Result<()> {
         }
         Commands::Thumbnail { papers, output_dir } => {
             cmd_thumbnails(&papers, &output_dir).await?;
+        }
+        Commands::Banner { output } => {
+            cmd_banner(&output).await?;
+        }
+        Commands::ChannelIcon { output, size } => {
+            cmd_channel_icon(&output, size).await?;
         }
         Commands::Trailer {
             output,
@@ -601,6 +619,60 @@ async fn cmd_trim_outro(
     }
 
     println!("\n{} trimmed, {} skipped.", trimmed, skipped);
+    Ok(())
+}
+
+async fn cmd_banner(output: &PathBuf) -> Result<()> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    println!("Rendering YouTube channel banner (2560x1440)...");
+
+    let mut renderer = render::text::TextRenderer::new();
+
+    const BW: u32 = 2560;
+    const BH: u32 = 1440;
+    let mut pixmap = tiny_skia::Pixmap::new(BW, BH).unwrap();
+    {
+        let data = pixmap.data_mut();
+        for i in (0..data.len()).step_by(4) {
+            data[i]     = config::BG_COLOR[0];
+            data[i + 1] = config::BG_COLOR[1];
+            data[i + 2] = config::BG_COLOR[2];
+            data[i + 3] = config::BG_COLOR[3];
+        }
+    }
+
+    render::cards::render_banner(&mut renderer, &mut pixmap);
+    pixmap.save_png(output)?;
+
+    println!("  → {}", output.display());
+    Ok(())
+}
+
+async fn cmd_channel_icon(output: &PathBuf, size: u32) -> Result<()> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    println!("Rendering channel icon ({size}x{size})...");
+
+    let mut pixmap = tiny_skia::Pixmap::new(size, size).unwrap();
+    {
+        let data = pixmap.data_mut();
+        for i in (0..data.len()).step_by(4) {
+            data[i]     = config::BG_COLOR[0];
+            data[i + 1] = config::BG_COLOR[1];
+            data[i + 2] = config::BG_COLOR[2];
+            data[i + 3] = config::BG_COLOR[3];
+        }
+    }
+
+    render::cards::render_channel_icon(&mut pixmap);
+    pixmap.save_png(output)?;
+
+    println!("  → {}", output.display());
     Ok(())
 }
 
