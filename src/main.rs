@@ -690,8 +690,21 @@ async fn cmd_thumbnails(papers: &str, output_dir: &PathBuf) -> Result<()> {
         let json = resp.text().await?;
         let paper = data::paper::Paper::from_json(&json)?;
 
-        let mut pixmap = render::background::render_background(2.5);
-        let mut content = tiny_skia::Pixmap::new(config::WIDTH, config::HEIGHT).unwrap();
+        // Thumbnails are YouTube browse-view assets — keep at 1920×1080 regardless
+        // of the video canvas resolution. Build a dark fill directly rather than
+        // calling render_background (which uses config::WIDTH/HEIGHT and now
+        // produces 4K output).
+        let mut pixmap = tiny_skia::Pixmap::new(1920, 1080).unwrap();
+        {
+            let data = pixmap.data_mut();
+            for i in (0..data.len()).step_by(4) {
+                data[i]     = config::BG_COLOR[0];
+                data[i + 1] = config::BG_COLOR[1];
+                data[i + 2] = config::BG_COLOR[2];
+                data[i + 3] = config::BG_COLOR[3];
+            }
+        }
+        let mut content = tiny_skia::Pixmap::new(1920, 1080).unwrap();
         render::cards::render_thumbnail(&mut renderer, &mut content, &paper.paper_id, &paper.paper_title);
         render::compositor::composite(&mut pixmap, &content, 1.0);
 

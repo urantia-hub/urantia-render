@@ -65,7 +65,7 @@ pub fn render_thumbnail(
     paper_id: &str,
     paper_title: &str,
 ) {
-    let h = HEIGHT as f32;
+    let h = pixmap.height() as f32;
 
     let logo_cx = 380.0;
     let logo_cy = h / 2.0;
