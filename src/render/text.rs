@@ -156,7 +156,7 @@ pub struct TextStyle {
 }
 
 impl TextStyle {
-    // --- Paragraph body: Lora Regular (400), 30px, line-height 1.7 ---
+    // --- Paragraph body: Lora Regular, caller-supplied font_size, line-height 1.5 ---
 
     pub fn body(x: f32, y: f32) -> Self {
         Self::body_sized(x, y, 30.0)
@@ -176,7 +176,7 @@ impl TextStyle {
         }
     }
 
-    // --- Reference ID: DM Sans Regular, 16px, muted ---
+    // --- Reference ID: DM Sans Regular, muted, base 26pt (scaled) ---
 
     pub fn reference_id(x: f32, y: f32) -> Self {
         let font_size = 26.0 * RESOLUTION_SCALE;
@@ -193,7 +193,7 @@ impl TextStyle {
         }
     }
 
-    // --- Paper title (intro card): Lora SemiBold (600), 54px, centered ---
+    // --- Paper title (intro card): Lora SemiBold, base 72pt (scaled), centered ---
 
     pub fn paper_title(y: f32) -> Self {
         let font_size = 72.0 * RESOLUTION_SCALE;
@@ -211,7 +211,7 @@ impl TextStyle {
         }
     }
 
-    // --- Paper label ("PAPER 1"): DM Sans, muted, centered ---
+    // --- Paper label ("PAPER 1"): DM Sans, muted, base 32pt (scaled), centered ---
 
     pub fn paper_label(y: f32) -> Self {
         let font_size = 32.0 * RESOLUTION_SCALE;
@@ -229,7 +229,7 @@ impl TextStyle {
         }
     }
 
-    // --- Section title: Lora Medium (500) Italic, 36px, centered ---
+    // --- Section title: Lora Medium Italic, base 48pt (scaled), centered ---
     // Note: cosmic-text doesn't have a separate italic toggle via TextStyle,
     // so we use the italic font family name directly.
 
