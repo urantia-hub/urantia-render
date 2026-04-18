@@ -235,6 +235,28 @@ def cmd_push(args):
             },
         }
 
+        if args.thumbnails_only:
+            thumb = THUMBS_DIR / f"thumbnail-{pid}.png"
+            if not thumb.exists():
+                print(f"  paper {pid}: no thumbnail at {thumb}, skipping")
+                skipped += 1
+                continue
+            if args.dry_run:
+                print(f"  [dry-run] paper {pid} ({video_id}): would upload {thumb.name}")
+                updated += 1
+                continue
+            try:
+                yt.thumbnails().set(
+                    videoId=video_id,
+                    media_body=MediaFileUpload(str(thumb), mimetype="image/png"),
+                ).execute()
+                print(f"  paper {pid}: thumbnail uploaded ({thumb.name})")
+                updated += 1
+            except Exception as e:
+                print(f"  paper {pid}: thumbnail FAILED — {e}")
+                skipped += 1
+            continue
+
         if args.dry_run:
             mode = "title+tags" if args.title_and_tags_only else "title+tags+description"
             print(
@@ -340,6 +362,14 @@ def main():
             "update title + tags only; keep the existing YouTube description "
             "(useful when the uploaded video's audio timing differs from the "
             "freshly-generated chapter timestamps)"
+        ),
+    )
+    sp_push.add_argument(
+        "--thumbnails-only",
+        action="store_true",
+        help=(
+            "only upload thumbnails; skip the videos.update call entirely. "
+            "Useful for a second-day pass after quota reset."
         ),
     )
     sp_push.set_defaults(func=cmd_push)
