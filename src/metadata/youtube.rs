@@ -188,15 +188,24 @@ pub fn generate_metadata(
     // YouTube caps total tag character count at 500. We assemble in priority
     // order and stop adding once the budget is hit — generic tags fall off
     // first, which is what we want.
+    // YouTube's tag UI splits on comma, so any tag containing a comma gets
+    // silently broken up (and often mangled in Studio's display). Strip commas
+    // from entity names before using them as tags. Pattern: "A, B" → "A B".
+    fn sanitize_tag(name: &str) -> String {
+        name.replace(", ", " ").replace(',', "")
+    }
+
     let priority_tags: Vec<String> = {
         let mut t: Vec<String> = top_entities
             .iter()
             .take(10)
-            .map(|e| e.name.clone())
+            .map(|e| sanitize_tag(&e.name))
             .collect();
         // Paper title right after entities (avoid duplicating if already listed).
-        if !t.iter().any(|x| x.eq_ignore_ascii_case(&paper_title)) {
-            t.push(paper_title.clone());
+        // Sanitize in case the title has a comma (e.g. "Fetishes, Charms, and Magic").
+        let title_tag = sanitize_tag(&paper_title);
+        if !t.iter().any(|x| x.eq_ignore_ascii_case(&title_tag)) {
+            t.push(title_tag);
         }
         // Brand terms.
         t.push("Urantia Papers".to_string());
