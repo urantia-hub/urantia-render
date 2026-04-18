@@ -15,7 +15,7 @@ set -euxo pipefail
 # ─── Config (edit or inject via Terraform/cloud-init template) ───
 REPO_URL="${REPO_URL:-https://github.com/urantia-hub/urantia-render.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
-S3_BUCKET="${S3_BUCKET:?set S3_BUCKET env var}"
+S3_BUCKET="${S3_BUCKET:-urantia-render-batch}"
 S3_PREFIX="${S3_PREFIX:-urantia-render/$(date -u +%Y-%m-%d)}"
 CONCURRENCY="${CONCURRENCY:-12}"
 THREADS_PER_FFMPEG="${THREADS_PER_FFMPEG:-4}"
@@ -56,21 +56,20 @@ cargo build --release --bin urantia-render
 # ─── 4. Pull the audio manifest + prime the output layout ───
 mkdir -p output/manifests output/audio output/videos output/metadata
 
-# Local audio manifest with durations (CDN manifest lacks durations per CLAUDE.md).
-# Pull from the API which is the canonical source:
-curl -fsSL "$AUDIO_MANIFEST_URL" -o output/audio-manifest-cdn.json
+# The public CDN manifest at cdn.urantia.dev lacks `duration` fields — we pull
+# the full-detail version (with durations) from our own S3 bucket, which was
+# seeded from urantia-dev-api/data/audio-manifest.json.
+aws s3 cp "s3://$S3_BUCKET/audio-manifest.json" output/audio-manifest.json
 
 # ─── 5. Download per-paper audio MP3s ───
-# The renderer supports --audio-dir pointing at a flat layout of
-# tts-1-hd-nova-{globalId}.mp3 files (per the urantia-data-sources convention).
-# We'll fetch them lazily in the manifest phase, OR preload in one burst.
-
 ./target/release/urantia-render download --papers "$PAPER_RANGE" || {
     echo "download command failed or unavailable; continuing, render will try CDN fetch"
 }
 
 # ─── 6. Build manifests ───
-./target/release/urantia-render manifest --papers "$PAPER_RANGE"
+./target/release/urantia-render manifest \
+    --papers "$PAPER_RANGE" \
+    --manifest-path output/audio-manifest.json
 
 # ─── 7. Render all papers in parallel ───
 export URANTIA_RENDER_ENCODER=libx264
