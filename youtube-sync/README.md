@@ -57,6 +57,66 @@ Re-running `upload` is safe — already-uploaded papers (tracked in
 `upload-state.json`) get skipped unless you pass `--force`. If the daily
 quota trips mid-upload, just re-run the same command tomorrow.
 
+## Auto-uploader daemon
+
+`bin/urantia-uploader` runs `orchestrator.py` as a background process that
+walks papers 0 → 196 in order, rendering each MP4 + thumbnail + metadata and
+uploading to YouTube. It respects the daily API quota and auto-resumes after
+a laptop reboot via one command.
+
+### Control commands
+
+```bash
+./bin/urantia-uploader start      # launch in the background (nohup)
+./bin/urantia-uploader stop       # kill the daemon (and any child render)
+./bin/urantia-uploader restart
+./bin/urantia-uploader pause      # PAUSED marker — daemon stays running, skips uploads
+./bin/urantia-uploader resume
+./bin/urantia-uploader status     # pid, progress, today's quota, last 10 log lines
+./bin/urantia-uploader log        # tail -f orchestrator.log
+./bin/urantia-uploader next       # show which paper is up next + queue
+./bin/urantia-uploader mark-done <paper-id> <video-id>
+                                  # record a manually-uploaded paper so the daemon skips it
+```
+
+### How render-ahead works
+
+Rendering is local and doesn't touch the YouTube API quota. When the daily
+budget (8,500 units, ~5 uploads) is spent, the orchestrator switches from
+"upload" mode to "render-ahead" mode: it walks forward through remaining
+papers and renders any that are missing MP4/metadata/thumbnail. By the time
+the quota resets at midnight Pacific Time, the next day's uploads are already
+sitting on disk and can go out back-to-back.
+
+### Bypassing the API quota with manual uploads
+
+Drag-and-drop uploads in YouTube Studio don't count against the API quota.
+If the daemon has pre-rendered assets sitting in `output/videos/`,
+`output/metadata/`, and `output/thumbnails/`, you can:
+
+1. Upload the MP4 at `output/videos/tts-1-hd-nova-{pid}.mp4` via Studio.
+2. Copy the title/description/tags from `output/metadata/{pid}.json`.
+3. Attach the thumbnail at `output/thumbnails/thumbnail-{pid}.png`.
+4. Add the video to the "All Papers" playlist and the relevant Part playlist
+   (Foreword = All only; 1–31 = Part I; 32–56 = Part II; 57–119 = Part III;
+   120–196 = Part IV).
+5. Record the upload so the daemon skips that paper:
+
+   ```bash
+   ./bin/urantia-uploader mark-done 5 dQw4w9WgXcQ
+   ```
+
+This lets you upload faster than the 5/day API cap — useful during downtime
+when you want to push a batch through by hand.
+
+### Reboot behavior
+
+The daemon runs under `nohup`, not `launchd`, because macOS TCC restrictions
+block launchd agents from accessing `~/Desktop` even with Full Disk Access
+granted to `/bin/bash`. After a reboot, run `./bin/urantia-uploader start`
+once to resume — all state (upload-state.json, quota-log.json, rendered
+files) persists on disk.
+
 ## Quota
 
 YouTube Data API costs (per paper):

@@ -64,3 +64,16 @@ High-performance Rust video renderer for the UrantiaHub YouTube channel. Renders
 - Audio manifest from CDN has slightly different key behavior than local copy — use `--manifest-path` with local `urantia-dev-api/data/audio-manifest.json` for reliable lookups
 - Phase 2+ modules are stubs (compile but no implementation)
 - Fonts not yet downloaded into `assets/fonts/`
+
+## Auto-uploader daemon
+
+Background process under `bin/urantia-uploader` (wraps `youtube-sync/orchestrator.py`) that walks papers 0 → 196, rendering each one and uploading to the UrantiaHub YouTube channel.
+
+- Runs under `nohup`, not `launchd` (macOS TCC blocks launchd agents from `~/Desktop` even with FDA on `/bin/bash`). After a reboot, run `./bin/urantia-uploader start` once to resume.
+- Respects the YouTube Data API quota (default 10k/day, ~5 uploads at 1,750 units each). When quota is exhausted, switches to "render-ahead" mode: keeps rendering future papers locally so the next day's uploads are pre-warmed on disk.
+- Pre-rendered assets (`output/videos/tts-1-hd-nova-{pid}.mp4`, `output/metadata/{pid}.json`, `output/thumbnails/thumbnail-{pid}.png`) can be drag-and-dropped into YouTube Studio to bypass the API quota entirely.
+- After a manual upload, record it so the daemon skips that paper:
+  ```bash
+  ./bin/urantia-uploader mark-done <paper-id> <youtube-video-id>
+  ```
+- Full docs + control commands: `youtube-sync/README.md` ("Auto-uploader daemon" section).
