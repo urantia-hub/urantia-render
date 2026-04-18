@@ -111,6 +111,11 @@ enum Commands {
         #[arg(long, default_value = "./output/thumbnails")]
         output_dir: PathBuf,
     },
+    /// Render just the 5-second outro card as a standalone MP4 (dev preview).
+    OutroPreview {
+        #[arg(long, default_value = "./output/videos/outro-preview.mp4")]
+        output: PathBuf,
+    },
     /// Render channel trailer (~60s)
     Trailer {
         #[arg(long, default_value = "./output/videos/trailer.mp4")]
@@ -214,6 +219,7 @@ async fn main() -> Result<()> {
             cmd_channel_icon(&output, size).await?;
         }
         Commands::PlaylistThumbnails { output_dir } => cmd_playlist_thumbnails(&output_dir).await?,
+        Commands::OutroPreview { output } => cmd_outro_preview(&output).await?,
         Commands::Trailer {
             output,
             output_dir,
@@ -674,6 +680,44 @@ async fn cmd_channel_icon(output: &PathBuf, size: u32) -> Result<()> {
 
     render::cards::render_channel_icon(&mut pixmap);
     pixmap.save_png(output)?;
+
+    println!("  → {}", output.display());
+    Ok(())
+}
+
+async fn cmd_outro_preview(output: &PathBuf) -> Result<()> {
+    use crate::data::manifest::{PaperManifest, Segment};
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    println!("Rendering outro preview (5s standalone MP4)...");
+
+    // Single-segment manifest: just the outro at frame 0.
+    let manifest = PaperManifest {
+        paper_id: "preview".to_string(),
+        paper_title: "Outro Preview".to_string(),
+        part_id: "0".to_string(),
+        fps: config::FPS,
+        segments: vec![Segment::Outro {
+            start_frame: 0,
+            duration_frames: config::OUTRO_FRAMES,
+            tagline: None,
+        }],
+        total_duration_frames: config::OUTRO_FRAMES,
+        total_duration_sec: (config::OUTRO_FRAMES / config::FPS) as u32,
+    };
+
+    // Silent WAV matching outro duration (the outro has no audio).
+    let rate = audio::concat::SAMPLE_RATE;
+    let total_samples = (config::OUTRO_SEC * rate as f64) as usize;
+    let pcm = vec![0i16; total_samples];
+    let wav_path = std::env::temp_dir().join("urantia_outro_preview.wav");
+    audio::concat::write_wav(&pcm, rate, &wav_path)?;
+
+    render::pipeline::render_paper(&manifest, output, &wav_path, None)?;
+    let _ = std::fs::remove_file(&wav_path);
 
     println!("  → {}", output.display());
     Ok(())
