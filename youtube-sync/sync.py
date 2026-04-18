@@ -622,6 +622,88 @@ def cmd_delete(args):
     print(f"\ndeleted {deleted} of {len(targets)}")
 
 
+def cmd_nuke(args):
+    """Delete every video and every playlist on the authenticated channel.
+
+    Destructive and irreversible. Requires --yes to commit. Resets local state
+    files (mapping.json, playlists.json, upload-state.json) on success.
+
+    Quota: 50 units per video + 50 units per playlist deletion.
+    """
+    yt = get_service()
+
+    # Fetch every video
+    videos = list_uploads(yt)
+    # Fetch every playlist
+    playlists: list[dict] = []
+    token = None
+    while True:
+        resp = (
+            yt.playlists()
+            .list(part="snippet", mine=True, maxResults=50, pageToken=token)
+            .execute()
+        )
+        for it in resp.get("items", []):
+            playlists.append({"id": it["id"], "title": it["snippet"]["title"]})
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+
+    print(f"will delete {len(videos)} videos and {len(playlists)} playlists.\n")
+    print("videos (first 20):")
+    for v in videos[:20]:
+        print(f"  {v['videoId']}  {v['title']}")
+    if len(videos) > 20:
+        print(f"  ... and {len(videos) - 20} more")
+    print("\nplaylists:")
+    for p in playlists:
+        print(f"  {p['id']}  {p['title']}")
+
+    if not args.yes:
+        print(
+            f"\nrerun with --yes to actually nuke. "
+            f"quota: ~{50 * (len(videos) + len(playlists))} units."
+        )
+        return
+
+    print("\ndeleting videos...")
+    v_ok = v_fail = 0
+    for v in videos:
+        try:
+            yt.videos().delete(id=v["videoId"]).execute()
+            print(f"  ✓ {v['videoId']}")
+            v_ok += 1
+        except Exception as e:
+            print(f"  ✗ {v['videoId']}: {e}")
+            v_fail += 1
+            if "quotaExceeded" in str(e):
+                break
+
+    print(f"\ndeleting playlists...")
+    p_ok = p_fail = 0
+    for p in playlists:
+        try:
+            yt.playlists().delete(id=p["id"]).execute()
+            print(f"  ✓ {p['id']}  {p['title']}")
+            p_ok += 1
+        except Exception as e:
+            print(f"  ✗ {p['id']}: {e}")
+            p_fail += 1
+            if "quotaExceeded" in str(e):
+                break
+
+    # Clear local state files.
+    for f in (MAPPING_FILE, PLAYLISTS_FILE, UPLOAD_STATE_FILE):
+        if f.exists():
+            f.unlink()
+            print(f"  cleared {f.name}")
+
+    print(
+        f"\nvideos: {v_ok} deleted / {v_fail} failed   "
+        f"playlists: {p_ok} deleted / {p_fail} failed"
+    )
+
+
 def _expand_range(spec: str | None) -> list[str]:
     """Parse a '1,3,5' or '0-196' spec into a sorted list of string ids."""
     if not spec:
@@ -699,6 +781,12 @@ def main():
     )
     sp_delete.add_argument("--yes", action="store_true", help="confirm deletion")
     sp_delete.set_defaults(func=cmd_delete)
+
+    sp_nuke = sub.add_parser(
+        "nuke", help="DELETE every video + playlist on the channel (clean slate)"
+    )
+    sp_nuke.add_argument("--yes", action="store_true", help="required to actually delete")
+    sp_nuke.set_defaults(func=cmd_nuke)
 
     args = p.parse_args()
     args.func(args)
