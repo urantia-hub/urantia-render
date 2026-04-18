@@ -27,9 +27,17 @@ impl FfmpegEncoder {
                 // Audio input: WAV file
                 "-i", &audio_wav_path.to_string_lossy(),
                 // Video codec
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "20",
+                // Use Apple VideoToolbox hardware encoding on macOS — the M-series
+                // Media Engine encodes 4K H.264 at 5-10× real-time (vs libx264
+                // which is CPU-bound and takes ~30 min for a 40-min 4K paper).
+                //
+                // Quality: `-q:v 65` (0-100 scale, higher = better) gives visually
+                // excellent output for our gray-text-on-dark content. Since YouTube
+                // re-encodes to VP9/AV1 anyway, we just need clean input — not
+                // archival mastering.
+                "-c:v", "h264_videotoolbox",
+                "-q:v", "65",
+                "-profile:v", "high",
                 "-pix_fmt", "yuv420p",
                 // Audio codec
                 "-c:a", "aac",
