@@ -180,7 +180,9 @@ def cmd_push(args):
     if args.paper:
         paper_ids = [args.paper]
     else:
-        paper_ids = sorted(mapping.keys(), key=lambda s: int(s))
+        paper_ids = sorted(
+            [k for k in mapping.keys() if not k.startswith("_")], key=lambda s: int(s)
+        )
 
     updated = 0
     skipped = 0
@@ -210,6 +212,18 @@ def cmd_push(args):
         while sum(len(t) + 2 for t in tags) > 500 and tags:
             tags = tags[:-1]
 
+        # If --title-and-tags-only, preserve the existing YouTube description
+        # (keeps chapter timestamps aligned with the currently-uploaded video
+        # audio, which may differ from the freshly regenerated manifest).
+        if args.title_and_tags_only:
+            current = yt.videos().list(part="snippet", id=video_id).execute()
+            items = current.get("items", [])
+            if not items:
+                print(f"  paper {pid}: video {video_id} not found on YouTube")
+                skipped += 1
+                continue
+            description = items[0]["snippet"].get("description", "")
+
         body = {
             "id": video_id,
             "snippet": {
@@ -222,7 +236,12 @@ def cmd_push(args):
         }
 
         if args.dry_run:
-            print(f"  [dry-run] paper {pid} ({video_id}): would update title → {meta['title']}")
+            mode = "title+tags" if args.title_and_tags_only else "title+tags+description"
+            print(
+                f"  [dry-run] paper {pid} ({video_id}): would update {mode}"
+                f"\n    title: {meta['title']}"
+                f"\n    tags:  {', '.join(tags)}"
+            )
             updated += 1
             continue
 
@@ -248,6 +267,55 @@ def cmd_push(args):
     print(f"\n{'DRY-RUN ' if args.dry_run else ''}done: {updated} updated, {skipped} skipped")
 
 
+def cmd_diff(args):
+    """Show before/after for a specific paper — current YouTube metadata vs
+    the freshly generated JSON. Read-only, costs 1 unit per paper."""
+    if not MAPPING_FILE.exists():
+        sys.exit(f"missing {MAPPING_FILE}. run `./sync.py list` first.")
+    mapping = json.loads(MAPPING_FILE.read_text())
+
+    paper_ids = [args.paper] if args.paper else sorted(mapping.keys(), key=lambda s: int(s))
+    if not args.paper:
+        # Default to a representative set so `--all` isn't the default.
+        paper_ids = [p for p in ["0", "1", "42", "100", "118", "196"] if p in mapping]
+
+    yt = get_service()
+
+    for pid in paper_ids:
+        video_id = mapping.get(pid)
+        if not video_id:
+            print(f"\n=== paper {pid}: no video mapping ===")
+            continue
+        meta_path = METADATA_DIR / f"{pid}.json"
+        if not meta_path.exists():
+            print(f"\n=== paper {pid}: no metadata json ===")
+            continue
+
+        new_meta = json.loads(meta_path.read_text())
+        current = yt.videos().list(part="snippet", id=video_id).execute()
+        items = current.get("items", [])
+        if not items:
+            print(f"\n=== paper {pid}: video {video_id} not found on YouTube ===")
+            continue
+        snip = items[0]["snippet"]
+
+        print(f"\n=== paper {pid} — video {video_id} ===")
+        print(f"--- TITLE ---")
+        print(f"  current: {snip.get('title')}")
+        print(f"  new:     {new_meta['title']}")
+
+        print(f"--- TAGS ---")
+        cur_tags = snip.get("tags", [])
+        print(f"  current ({len(cur_tags)}): {', '.join(cur_tags) if cur_tags else '(none)'}")
+        print(f"  new ({len(new_meta['tags'])}):     {', '.join(new_meta['tags'])}")
+
+        print(f"--- DESCRIPTION (first 400 chars) ---")
+        cur_desc = (snip.get("description") or "")[:400].replace("\n", "\\n ")
+        new_desc = new_meta["description"][:400].replace("\n", "\\n ")
+        print(f"  current: {cur_desc}...")
+        print(f"  new:     {new_desc}...")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -255,11 +323,24 @@ def main():
     sp_list = sub.add_parser("list", help="discover channel videos and save mapping.json")
     sp_list.set_defaults(func=cmd_list)
 
+    sp_diff = sub.add_parser("diff", help="show current-vs-proposed metadata for spot-check")
+    sp_diff.add_argument("--paper", help="single paper id (defaults to a representative set)")
+    sp_diff.set_defaults(func=cmd_diff)
+
     sp_push = sub.add_parser("push", help="push metadata (+ thumbnails) to YouTube")
     sp_push.add_argument("--dry-run", action="store_true", help="preview without writing")
     sp_push.add_argument("--paper", help="push a single paper id, e.g. --paper 1")
     sp_push.add_argument(
         "--thumbnails", action="store_true", help="also upload thumbnail-{id}.png"
+    )
+    sp_push.add_argument(
+        "--title-and-tags-only",
+        action="store_true",
+        help=(
+            "update title + tags only; keep the existing YouTube description "
+            "(useful when the uploaded video's audio timing differs from the "
+            "freshly-generated chapter timestamps)"
+        ),
     )
     sp_push.set_defaults(func=cmd_push)
 

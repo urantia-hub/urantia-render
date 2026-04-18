@@ -178,29 +178,47 @@ pub fn generate_metadata(
     description_lines.push("#UrantiaPapers #UrantiaBook #Spirituality #AudioBook".to_string());
     let description = description_lines.join("\n");
 
-    // Tags: start with the evergreen foundation, then append entity-derived
-    // tags (top 10 real entity names), then paper title. YouTube caps total
-    // tag character count at 500 so we cap entity names by an approximate
-    // budget rather than blindly appending everything.
-    let mut tags: Vec<String> = vec![
-        "Urantia Papers".to_string(),
-        "Urantia Book".to_string(),
-        "Urantia".to_string(),
-        paper_title.clone(),
-        "audiobook".to_string(),
-        "spirituality".to_string(),
-        "philosophy".to_string(),
-        "theology".to_string(),
-        "UrantiaHub".to_string(),
-    ];
-    let mut budget: i32 = 500 - tags.iter().map(|t| t.len() as i32 + 2).sum::<i32>();
-    for e in top_entities.iter().take(10) {
-        let cost = e.name.len() as i32 + 2;
+    // Tags in SEO priority order:
+    //   1. Top entities (most specific, least competition, best discovery)
+    //   2. Paper title (matches the YouTube title — boosts relevancy signal)
+    //   3. Brand terms (Urantia Papers → Urantia Book → Urantia → UrantiaHub)
+    //   4. Generic categories last (audiobook, spirituality, …) — these get
+    //      buried regardless and are the first to drop when we hit the budget.
+    //
+    // YouTube caps total tag character count at 500. We assemble in priority
+    // order and stop adding once the budget is hit — generic tags fall off
+    // first, which is what we want.
+    let priority_tags: Vec<String> = {
+        let mut t: Vec<String> = top_entities
+            .iter()
+            .take(10)
+            .map(|e| e.name.clone())
+            .collect();
+        // Paper title right after entities (avoid duplicating if already listed).
+        if !t.iter().any(|x| x.eq_ignore_ascii_case(&paper_title)) {
+            t.push(paper_title.clone());
+        }
+        // Brand terms.
+        t.push("Urantia Papers".to_string());
+        t.push("Urantia Book".to_string());
+        t.push("Urantia".to_string());
+        t.push("UrantiaHub".to_string());
+        // Generics last.
+        t.push("audiobook".to_string());
+        t.push("spirituality".to_string());
+        t.push("philosophy".to_string());
+        t.push("theology".to_string());
+        t
+    };
+    let mut tags: Vec<String> = Vec::new();
+    let mut budget: i32 = 500;
+    for tag in priority_tags {
+        let cost = tag.len() as i32 + 2;
         if cost > budget {
             break;
         }
         budget -= cost;
-        tags.push(e.name.clone());
+        tags.push(tag);
     }
 
     let file_name = config::video_filename(paper_id);
