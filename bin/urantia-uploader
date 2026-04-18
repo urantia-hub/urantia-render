@@ -1,81 +1,66 @@
 #!/usr/bin/env bash
 # UrantiaHub auto-uploader control script.
 #
-# Runs the orchestrator as a detached background process (nohup). Survives
-# log-out, but NOT a reboot — after rebooting, run `./bin/urantia-uploader start`
-# once to resume. Everything else (progress, quota, render state) persists.
+# Wraps launchd so the orchestrator daemon runs continuously in the background,
+# survives system restarts, and auto-restarts on crash.
 #
 # Commands:
-#   start    — launch orchestrator in the background
-#   stop     — kill the running orchestrator
-#   restart  — stop + start
-#   pause    — create PAUSED marker (daemon keeps running but skips uploads)
-#   resume   — remove PAUSED marker
-#   status   — show running state, progress, quota, last log lines
+#   start    — install + load the launchd agent; daemon starts running
+#   stop     — unload + uninstall the launchd agent; daemon stops
+#   pause    — create the PAUSED marker; daemon keeps running but stops uploading
+#   resume   — remove the PAUSED marker; daemon resumes uploading
+#   status   — show launchd state, last log lines, upload progress, quota
 #   log      — tail -f the orchestrator log
-#   next     — show which paper is up next + queue
+#   next     — show which paper is up next + what's queued today
+#   restart  — stop + start
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LABEL="com.urantia.uploader"
+PLIST_DST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+PLIST_SRC="$ROOT/youtube-sync/com.urantia.uploader.plist.template"
 ORCHESTRATOR="$ROOT/youtube-sync/orchestrator.py"
 SYNC_DIR="$ROOT/youtube-sync"
 PAUSED="$SYNC_DIR/PAUSED"
 LOG="$SYNC_DIR/orchestrator.log"
-NOHUP_LOG="$SYNC_DIR/nohup.log"
-PID_FILE="$SYNC_DIR/orchestrator.pid"
 UPLOAD_STATE="$SYNC_DIR/upload-state.json"
 QUOTA_LOG="$SYNC_DIR/quota-log.json"
 
-is_running() {
-    [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+DOMAIN="gui/$(id -u)"
+SERVICE="$DOMAIN/$LABEL"
+
+install_plist() {
+    mkdir -p "$(dirname "$PLIST_DST")"
+    # Substitute current PATH, HOME, shell, and paths into the template.
+    sed -e "s|{{ROOT}}|$ROOT|g" \
+        -e "s|{{ORCHESTRATOR}}|$ORCHESTRATOR|g" \
+        -e "s|{{SHELL}}|${SHELL:-/bin/bash}|g" \
+        -e "s|{{PATH}}|$PATH|g" \
+        -e "s|{{HOME}}|$HOME|g" \
+        "$PLIST_SRC" > "$PLIST_DST"
 }
 
 cmd_start() {
-    if is_running; then
-        echo "already running (pid $(cat "$PID_FILE"))"
-        return 0
+    install_plist
+    if launchctl print "$SERVICE" >/dev/null 2>&1; then
+        echo "already loaded; bumping it"
+        launchctl bootout "$SERVICE" 2>/dev/null || true
+        sleep 1
     fi
-    cd "$ROOT"
-    # nohup so the process survives this shell exiting.
-    # < /dev/null so uv/python don't see a TTY + hang.
-    nohup "$ORCHESTRATOR" < /dev/null >> "$NOHUP_LOG" 2>&1 &
-    PID=$!
-    echo "$PID" > "$PID_FILE"
-    echo "started (pid $PID)"
-    echo "logs: $LOG"
-    echo "check: $0 status   ·   tail: $0 log"
+    launchctl bootstrap "$DOMAIN" "$PLIST_DST"
+    launchctl enable "$SERVICE"
+    echo "started. tail the log with:  $0 log"
 }
 
 cmd_stop() {
-    if [ ! -f "$PID_FILE" ]; then
-        echo "(no pid file — not running)"
-        return 0
-    fi
-    PID=$(cat "$PID_FILE")
-    if kill -0 "$PID" 2>/dev/null; then
-        # Kill orchestrator AND any child process (cargo/ffmpeg render).
-        # Negative PID signals the whole process group.
-        kill -TERM -"$PID" 2>/dev/null || kill -TERM "$PID" 2>/dev/null || true
-        sleep 2
-        if kill -0 "$PID" 2>/dev/null; then
-            kill -KILL "$PID" 2>/dev/null || true
-        fi
-        echo "stopped (pid $PID)"
-    else
-        echo "(pid $PID not running — cleaning up stale pid file)"
-    fi
-    rm -f "$PID_FILE"
-}
-
-cmd_restart() {
-    cmd_stop || true
-    sleep 1
-    cmd_start
+    launchctl bootout "$SERVICE" 2>/dev/null || echo "(already stopped)"
+    rm -f "$PLIST_DST"
+    echo "stopped + uninstalled"
 }
 
 cmd_pause() {
     touch "$PAUSED"
-    echo "paused (marker: $PAUSED). daemon keeps running but skips uploads."
+    echo "paused. daemon will skip uploads until you run: $0 resume"
 }
 
 cmd_resume() {
@@ -84,13 +69,11 @@ cmd_resume() {
 }
 
 cmd_status() {
-    echo "=== process state ==="
-    if is_running; then
-        PID=$(cat "$PID_FILE")
-        echo "running (pid $PID)"
-        ps -p "$PID" -o pid,etime,command 2>/dev/null | tail -1 || true
+    echo "=== launchd state ==="
+    if launchctl print "$SERVICE" >/dev/null 2>&1; then
+        launchctl print "$SERVICE" | grep -E "state|pid|last exit|last launched|path" | head -10 || true
     else
-        echo "not running  —  start with: $0 start"
+        echo "(not loaded — run: $0 start)"
     fi
 
     echo ""
@@ -98,7 +81,7 @@ cmd_status() {
     if [ -f "$PAUSED" ]; then
         echo "PAUSED"
     else
-        echo "running (no pause marker)"
+        echo "running"
     fi
 
     echo ""
@@ -107,7 +90,7 @@ cmd_status() {
         uploaded=$(python3 -c "import json; print(len(json.load(open('$UPLOAD_STATE'))))")
         echo "$uploaded / 197 papers uploaded"
     else
-        echo "0 / 197 papers uploaded"
+        echo "0 / 197 papers uploaded (no state file yet)"
     fi
 
     echo ""
@@ -130,7 +113,7 @@ print(f'used {used}/8500 units today ({used / 1750:.1f} uploads)')
     if [ -f "$LOG" ]; then
         tail -10 "$LOG"
     else
-        echo "(no log yet — waiting for first iteration)"
+        echo "(no log yet)"
     fi
 }
 
@@ -157,22 +140,28 @@ else:
 PY
 }
 
+cmd_restart() {
+    cmd_stop || true
+    sleep 1
+    cmd_start
+}
+
 case "${1:-}" in
     start)   cmd_start ;;
     stop)    cmd_stop ;;
-    restart) cmd_restart ;;
     pause)   cmd_pause ;;
     resume)  cmd_resume ;;
     status)  cmd_status ;;
     log)     cmd_log ;;
     next)    cmd_next ;;
+    restart) cmd_restart ;;
     "")
-        echo "usage: $0 {start|stop|restart|pause|resume|status|log|next}"
+        echo "usage: $0 {start|stop|pause|resume|status|log|next|restart}"
         exit 1
         ;;
     *)
         echo "unknown command: $1"
-        echo "usage: $0 {start|stop|restart|pause|resume|status|log|next}"
+        echo "usage: $0 {start|stop|pause|resume|status|log|next|restart}"
         exit 1
         ;;
 esac

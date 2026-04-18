@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.urantia.uploader</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{SHELL}}</string>
+        <string>-lc</string>
+        <string>{{ORCHESTRATOR}}</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{ROOT}}</string>
+
+    <!-- Run at login and restart automatically on exit. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Wait at least 60s between relaunches so a crash loop doesn't hammer the system. -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <!-- Inherit user's PATH so we can find uv, ffmpeg, etc. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{{PATH}}</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+    </dict>
+
+    <!-- Logs go to the repo so they're easy to tail alongside orchestrator.log. -->
+    <key>StandardOutPath</key>
+    <string>{{ROOT}}/youtube-sync/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{ROOT}}/youtube-sync/launchd.err.log</string>
+
+    <!-- Low CPU priority so rendering doesn't steal from interactive apps. -->
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
