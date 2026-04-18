@@ -1,8 +1,8 @@
 use anyhow::Result;
 use std::path::Path;
 
-use crate::config::{FADE_FRAMES, FPS};
-use crate::data::manifest::PaperManifest;
+use crate::config::{CHUNK_CROSSFADE_FRAMES, FADE_FRAMES, FPS};
+use crate::data::manifest::{PaperManifest, Segment};
 use crate::encode::ffmpeg::FfmpegEncoder;
 use crate::render::frame::render_frame;
 use crate::render::text::TextRenderer;
@@ -71,7 +71,32 @@ pub fn render_paper(
             frames_written += 1;
         }
 
-        // Hold — render every 3 frames, repeat each 3x
+        // Around text-chunk boundaries inside a multi-chunk paragraph we need
+        // full 30fps so the chunk crossfade renders smoothly — the repeat
+        // optimization would quantize the fade into visible jumps.
+        let chunk_fade_windows: Vec<(u32, u32)> = match segment {
+            Segment::Paragraph { text_chunks, .. } if text_chunks.len() > 1 => {
+                let half = (CHUNK_CROSSFADE_FRAMES / 2).max(1);
+                text_chunks
+                    .iter()
+                    .skip(1)
+                    .map(|c| {
+                        let lo = c.start_frame.saturating_sub(half);
+                        let hi = c.start_frame + half;
+                        (lo, hi)
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        let in_chunk_fade = |lf: u32| {
+            chunk_fade_windows
+                .iter()
+                .any(|(lo, hi)| lf >= *lo && lf < *hi)
+        };
+
+        // Hold — render every 3 frames, repeat each 3x. Step drops to 1 inside
+        // chunk fade windows so the crossfade is smooth.
         let mut local_frame = hold_start;
         while local_frame < hold_end {
             if max_frames.is_some_and(|m| frames_written >= m) { break; }
@@ -79,7 +104,8 @@ pub fn render_paper(
             let pixmap = render_frame(&mut renderer, segment, local_frame, global_time);
             let frame_data = pixmap.data();
 
-            let repeat = hold_step.min(hold_end - local_frame);
+            let effective_step = if in_chunk_fade(local_frame) { 1 } else { hold_step };
+            let repeat = effective_step.min(hold_end - local_frame);
             for _ in 0..repeat {
                 if max_frames.is_some_and(|m| frames_written >= m) { break; }
                 encoder.write_frame(frame_data)?;

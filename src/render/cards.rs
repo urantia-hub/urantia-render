@@ -163,7 +163,14 @@ pub fn render_section_card(
     section_title: &str,
 ) {
     let h = HEIGHT as f32;
-    let style = TextStyle::section_title(h / 2.0 - 30.0 * RESOLUTION_SCALE);
+
+    // Measure so we can vertically center, since long titles may wrap onto
+    // 2+ lines at the larger 100pt base size.
+    let measure = TextStyle::section_title(0.0);
+    let title_height = renderer.measure_text(section_title, &measure);
+    let start_y = (h - title_height) / 2.0;
+
+    let style = TextStyle::section_title(start_y);
     renderer.render_text(pixmap, section_title, &style);
 }
 

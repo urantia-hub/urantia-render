@@ -1,9 +1,31 @@
 use tiny_skia::Pixmap;
 use crate::config::*;
 use crate::data::manifest::Segment;
+use crate::data::text_chunker::TextChunk;
 use crate::render::background::render_background;
 use crate::render::cards::{render_intro_card, render_section_card, render_outro_card, render_paragraph};
 use crate::render::text::TextRenderer;
+
+/// Fade curve for text-chunk swaps inside a single paragraph.
+/// Returns 1.0 everywhere except within CHUNK_CROSSFADE_FRAMES/2 of a chunk
+/// boundary, where it dips to 0 at the boundary itself. This makes the
+/// instantaneous text swap invisible — by the time a reader sees the new
+/// chunk, the old one has faded out and faded back in.
+fn chunk_fade_multiplier(local_frame: u32, text_chunks: &[TextChunk]) -> f32 {
+    if text_chunks.len() < 2 {
+        return 1.0;
+    }
+    let half = (CHUNK_CROSSFADE_FRAMES / 2).max(1);
+    // Skip the first chunk — index 0 has no incoming boundary to fade over.
+    for chunk in text_chunks.iter().skip(1) {
+        let boundary = chunk.start_frame as i32;
+        let delta = (local_frame as i32 - boundary).unsigned_abs();
+        if delta < half {
+            return delta as f32 / half as f32;
+        }
+    }
+    1.0
+}
 
 /// Calculate fade opacity for a frame within a segment.
 /// Returns 0.0-1.0 based on position within the segment.
@@ -50,7 +72,10 @@ pub fn render_frame(
             }
         }
         Segment::SectionCard { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
-        Segment::Paragraph { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
+        Segment::Paragraph { duration_frames, text_chunks, .. } => {
+            fade_opacity(local_frame, *duration_frames)
+                * chunk_fade_multiplier(local_frame, text_chunks)
+        }
         Segment::Outro { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
     };
 

@@ -229,13 +229,13 @@ impl TextStyle {
         }
     }
 
-    // --- Section title: Lora Medium Italic, base 48pt (scaled), centered ---
+    // --- Section title: Lora Medium Italic, base 100pt (scaled), centered ---
     // Note: cosmic-text doesn't have a separate italic toggle via TextStyle,
     // so we use the italic font family name directly.
 
     pub fn section_title(y: f32) -> Self {
-        let font_size = 48.0 * RESOLUTION_SCALE;
-        let max_width = 800.0 * RESOLUTION_SCALE;
+        let font_size = 100.0 * RESOLUTION_SCALE;
+        let max_width = 1400.0 * RESOLUTION_SCALE;
         Self {
             font_size,
             line_height: font_size * 1.4,
