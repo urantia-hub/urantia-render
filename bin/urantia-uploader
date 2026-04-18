@@ -19,6 +19,10 @@
 #   status   — show running state, progress, quota, last log lines
 #   log      — tail -f the orchestrator log
 #   next     — show which paper is up next + queue
+#   mark-done <paper-id> <video-id>
+#            — record a manually-uploaded paper in upload-state.json so the
+#              daemon skips it (useful when you drag-and-drop via YouTube
+#              Studio to bypass the API quota)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -164,22 +168,57 @@ else:
 PY
 }
 
+cmd_mark_done() {
+    PAPER_ID="${2:-}"
+    VIDEO_ID="${3:-}"
+    if [ -z "$PAPER_ID" ] || [ -z "$VIDEO_ID" ]; then
+        echo "usage: $0 mark-done <paper-id> <video-id>"
+        echo "example: $0 mark-done 1 dQw4w9WgXcQ"
+        exit 1
+    fi
+    PAPER_ID="$PAPER_ID" VIDEO_ID="$VIDEO_ID" STATE_PATH="$UPLOAD_STATE" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+paper_id = os.environ["PAPER_ID"]
+video_id = os.environ["VIDEO_ID"]
+state_path = Path(os.environ["STATE_PATH"])
+
+if not (0 <= int(paper_id) <= 196):
+    raise SystemExit(f"invalid paper id {paper_id} (must be 0..196)")
+
+state = json.loads(state_path.read_text()) if state_path.exists() else {}
+existing = state.get(paper_id)
+state[paper_id] = video_id
+state_path.write_text(json.dumps(state, indent=2, sort_keys=True))
+if existing:
+    print(f"overwrote paper {paper_id}: {existing} -> {video_id}")
+else:
+    print(f"marked paper {paper_id} = {video_id}")
+print(f"{len(state)}/197 papers tracked as uploaded")
+PY
+}
+
+USAGE="usage: $0 {start|stop|restart|pause|resume|status|log|next|mark-done <paper-id> <video-id>}"
+
 case "${1:-}" in
-    start)   cmd_start ;;
-    stop)    cmd_stop ;;
-    restart) cmd_restart ;;
-    pause)   cmd_pause ;;
-    resume)  cmd_resume ;;
-    status)  cmd_status ;;
-    log)     cmd_log ;;
-    next)    cmd_next ;;
+    start)     cmd_start ;;
+    stop)      cmd_stop ;;
+    restart)   cmd_restart ;;
+    pause)     cmd_pause ;;
+    resume)    cmd_resume ;;
+    status)    cmd_status ;;
+    log)       cmd_log ;;
+    next)      cmd_next ;;
+    mark-done) cmd_mark_done "$@" ;;
     "")
-        echo "usage: $0 {start|stop|restart|pause|resume|status|log|next}"
+        echo "$USAGE"
         exit 1
         ;;
     *)
         echo "unknown command: $1"
-        echo "usage: $0 {start|stop|restart|pause|resume|status|log|next}"
+        echo "$USAGE"
         exit 1
         ;;
 esac

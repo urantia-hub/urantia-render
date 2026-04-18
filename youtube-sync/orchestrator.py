@@ -12,18 +12,18 @@ Background orchestrator for the UrantiaHub uploader.
 
 Loops forever. Each cycle:
   1. Check the PAUSED marker; if present, sleep and retry.
-  2. Check today's quota; if exhausted, sleep until next reset (00:00 PT).
-  3. Pick the next paper not yet uploaded (in ID order, 0 through 196).
-  4. Render the MP4 if missing (via `urantia-render render`).
-  5. Generate metadata + thumbnail if missing.
-  6. Upload via YouTube Data API (reuses sync.py's auth + playlist logic).
-  7. Persist progress to upload-state.json + quota-log.json.
-  8. Sleep a bit so uploads don't thundering-herd the daily budget.
+  2. Pick the next paper not yet uploaded (in ID order, 0 through 196).
+  3. Ensure assets (MP4 + metadata + thumbnail) exist; render if missing.
+  4. If today's quota has room: upload via YouTube Data API. Persist progress.
+  5. If quota is exhausted: switch to render-ahead mode — walk forward through
+     remaining papers and render any that are missing MP4/metadata/thumbnail,
+     so the queue is pre-warmed for tomorrow's uploads. Only sleep when every
+     remaining paper is already rendered.
 
 Run this directly for foreground debugging:
     ./orchestrator.py
 
-Intended production use: via launchd (see bin/urantia-uploader).
+Intended production use: via nohup (see bin/urantia-uploader).
 """
 
 from __future__ import annotations
@@ -232,6 +232,42 @@ def upload_paper(pid: str, yt) -> str | None:
     return video_id
 
 
+def assets_exist(pid: str) -> bool:
+    return (
+        (VIDEOS_DIR / f"tts-1-hd-nova-{pid}.mp4").exists()
+        and (METADATA_DIR / f"{pid}.json").exists()
+        and (THUMBS_DIR / f"thumbnail-{pid}.png").exists()
+    )
+
+
+def render_ahead_or_sleep(done: dict[str, str]) -> int:
+    """Find the next not-yet-uploaded paper that's missing assets and render them.
+    Returns 60s if we made progress (loop back quickly in case quota reset),
+    or seconds_until_next_pt_reset() if everything remaining is pre-rendered.
+
+    Rationale: rendering is local and free of API quota. Pre-warming assets
+    means (a) when quota resets we upload instantly instead of waiting ~50min
+    per render, and (b) if the user wants to drag-and-drop to YouTube Studio
+    during the quota window, the MP4/thumbnail/metadata are already on disk.
+    """
+    for pid in PAPER_IDS:
+        if pid in done:
+            continue
+        if assets_exist(pid):
+            continue
+        log(f"render-ahead: preparing paper {pid}")
+        if not ensure_paper_assets(pid):
+            log(f"render-ahead: paper {pid} failed; backing off")
+            return SLEEP_ON_ERROR_SEC
+        # Rendered one paper (~45min elapsed) — loop back so we re-check
+        # the quota window in case PT midnight passed while we were busy.
+        return 60
+
+    wait = seconds_until_next_pt_reset()
+    log(f"all remaining papers pre-rendered; waiting {wait / 3600:.1f}h for quota reset")
+    return wait
+
+
 def one_iteration() -> int:
     """Do one unit of work. Return seconds to sleep before the next iteration."""
     if PAUSED_MARKER.exists():
@@ -250,9 +286,8 @@ def one_iteration() -> int:
 
     remaining = quota_remaining_today()
     if remaining < PER_UPLOAD_COST:
-        wait = seconds_until_next_pt_reset()
-        log(f"quota exhausted today ({remaining} units left). sleeping {wait / 3600:.1f}h until PT midnight")
-        return wait
+        log(f"quota exhausted today ({remaining} units left); entering render-ahead mode")
+        return render_ahead_or_sleep(done)
 
     if not ensure_paper_assets(pid):
         log(f"paper {pid}: asset generation failed; backing off")
@@ -264,11 +299,9 @@ def one_iteration() -> int:
     except Exception as e:
         msg = str(e)
         if "quotaExceeded" in msg:
-            wait = seconds_until_next_pt_reset()
-            log(f"quotaExceeded from API. sleeping {wait / 3600:.1f}h")
-            # Still record attempted cost so future checks are consistent.
+            log("quotaExceeded from API; entering render-ahead mode")
             record_quota_usage(PER_UPLOAD_COST)
-            return wait
+            return render_ahead_or_sleep(done)
         log(f"paper {pid}: upload FAILED — {e}")
         return SLEEP_ON_ERROR_SEC
 
