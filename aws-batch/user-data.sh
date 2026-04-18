@@ -30,10 +30,20 @@ exec > >(tee -a "$LOG") 2>&1
 echo "[$(date -u)] boot: begin"
 
 # ─── 1. OS packages ───
+# Note: Ubuntu 24.04 dropped the `awscli` apt package. We install aws-cli v2
+# from the official zip installer instead.
 apt-get update -qq
 apt-get install -yqq \
     build-essential curl git pkg-config libssl-dev ca-certificates \
-    ffmpeg awscli jq unzip numactl
+    ffmpeg jq unzip numactl
+
+if ! command -v aws >/dev/null; then
+    cd /tmp
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+    unzip -q awscliv2.zip
+    ./aws/install --update
+    cd -
+fi
 
 # ─── 2. Rust toolchain (stable) ───
 if ! command -v cargo >/dev/null; then
@@ -80,12 +90,17 @@ export URANTIA_RENDER_THREADS="$THREADS_PER_FFMPEG"
     --concurrency "$CONCURRENCY" \
     --skip-existing
 
-# ─── 8. Generate metadata JSON (uses api.urantia.dev) ───
+# ─── 8. Generate YouTube metadata JSON (uses api.urantia.dev for topEntities) ───
 ./target/release/urantia-render metadata --papers "$PAPER_RANGE" || true
 
-# ─── 9. Upload outputs to S3 ───
-aws s3 sync output/videos/   "s3://$S3_BUCKET/$S3_PREFIX/videos/"   --only-show-errors
-aws s3 sync output/metadata/ "s3://$S3_BUCKET/$S3_PREFIX/metadata/" --only-show-errors
+# ─── 9. Generate 4K thumbnails ───
+./target/release/urantia-render thumbnail --papers "$PAPER_RANGE" || true
+
+# ─── 10. Upload outputs to S3 ───
+# Full set per paper: video + metadata JSON + upload sheet + thumbnail.
+aws s3 sync output/videos/     "s3://$S3_BUCKET/$S3_PREFIX/videos/"     --only-show-errors
+aws s3 sync output/metadata/   "s3://$S3_BUCKET/$S3_PREFIX/metadata/"   --only-show-errors
+aws s3 sync output/thumbnails/ "s3://$S3_BUCKET/$S3_PREFIX/thumbnails/" --only-show-errors
 
 echo "[$(date -u)] batch complete: s3://$S3_BUCKET/$S3_PREFIX/"
 
