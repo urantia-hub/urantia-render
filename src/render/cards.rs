@@ -185,14 +185,16 @@ pub fn render_outro_card(
     let h = HEIGHT as f32;
     let center_y = h / 2.0;
 
-    // Concentric circles logo above the text
-    let logo_radius = 56.0 * RESOLUTION_SCALE;
+    // Concentric circles logo above the text. Sized to match the presence
+    // of the paper/section titles elsewhere — 160px radius at 1080p ref,
+    // which gives a ~640px diameter logo at 4K.
+    let logo_radius = 160.0 * RESOLUTION_SCALE;
     let logo_cx = w / 2.0;
-    let logo_cy = center_y - 65.0 * RESOLUTION_SCALE;
+    let logo_cy = center_y - 140.0 * RESOLUTION_SCALE;
     render_concentric_logo(pixmap, logo_cx, logo_cy, logo_radius);
 
     // "Urantia" (Lato Light) + "Hub" (Lato Bold) side by side
-    let text_y = logo_cy + logo_radius + 15.0 * RESOLUTION_SCALE;
+    let text_y = logo_cy + logo_radius + 40.0 * RESOLUTION_SCALE;
 
     let urantia_width = renderer.measure_text_width("Urantia", &TextStyle::outro_logo_light(0.0, 0.0));
     let hub_width = renderer.measure_text_width("Hub", &TextStyle::outro_logo_bold(0.0, 0.0));
@@ -203,12 +205,12 @@ pub fn render_outro_card(
     renderer.render_text(pixmap, "Urantia", &light_style);
 
     // Light weight sits higher — nudge "Hub" up to align baselines
-    let bold_style = TextStyle::outro_logo_bold(text_x + urantia_width, text_y - 5.0 * RESOLUTION_SCALE);
+    let bold_style = TextStyle::outro_logo_bold(text_x + urantia_width, text_y - 10.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, "Hub", &bold_style);
 
     // Subtitle below
     let subtitle_text = tagline.unwrap_or("urantiahub.com");
-    let subtitle_style = TextStyle::outro_subtitle(text_y + 62.0 * RESOLUTION_SCALE);
+    let subtitle_style = TextStyle::outro_subtitle(text_y + 130.0 * RESOLUTION_SCALE);
     renderer.render_text(pixmap, subtitle_text, &subtitle_style);
 }
 

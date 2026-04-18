@@ -76,7 +76,19 @@ pub fn render_frame(
             fade_opacity(local_frame, *duration_frames)
                 * chunk_fade_multiplier(local_frame, text_chunks)
         }
-        Segment::Outro { duration_frames, .. } => fade_opacity(local_frame, *duration_frames),
+        // Outro: longer fade-in (1.5s) so the UrantiaHub brand reveals
+        // slowly and feels deliberate, not abrupt. Standard 0.5s fade-out.
+        Segment::Outro { duration_frames, .. } => {
+            let fade_in = (FPS as f32 * 1.5) as u32;
+            let fade_out = FADE_FRAMES;
+            if local_frame < fade_in {
+                local_frame as f32 / fade_in as f32
+            } else if local_frame >= duration_frames.saturating_sub(fade_out) {
+                (duration_frames - local_frame) as f32 / fade_out as f32
+            } else {
+                1.0
+            }
+        }
     };
 
     // Render content onto a separate layer

@@ -252,11 +252,11 @@ impl TextStyle {
     // --- Outro logo: "Urantia" in Lato Light ---
 
     pub fn outro_logo_light(x: f32, y: f32) -> Self {
-        let font_size = 48.0 * RESOLUTION_SCALE;
+        let font_size = 110.0 * RESOLUTION_SCALE;
         Self {
             font_size,
             line_height: font_size * 1.3,
-            max_width: 500.0 * RESOLUTION_SCALE,
+            max_width: 800.0 * RESOLUTION_SCALE,
             x,
             y,
             color: TEXT_COLOR,
@@ -269,11 +269,11 @@ impl TextStyle {
     // --- Outro logo: "Hub" in Lato Bold ---
 
     pub fn outro_logo_bold(x: f32, y: f32) -> Self {
-        let font_size = 48.0 * RESOLUTION_SCALE;
+        let font_size = 110.0 * RESOLUTION_SCALE;
         Self {
             font_size,
             line_height: font_size * 1.3,
-            max_width: 300.0 * RESOLUTION_SCALE,
+            max_width: 500.0 * RESOLUTION_SCALE,
             x,
             y,
             color: TEXT_COLOR,
@@ -286,8 +286,8 @@ impl TextStyle {
     // --- Outro subtitle: DM Sans, muted, centered ---
 
     pub fn outro_subtitle(y: f32) -> Self {
-        let font_size = 20.0 * RESOLUTION_SCALE;
-        let max_width = 800.0 * RESOLUTION_SCALE;
+        let font_size = 36.0 * RESOLUTION_SCALE;
+        let max_width = 900.0 * RESOLUTION_SCALE;
         Self {
             font_size,
             line_height: font_size * 1.4,
