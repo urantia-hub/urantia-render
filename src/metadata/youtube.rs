@@ -1,10 +1,64 @@
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::config;
 use crate::data::manifest::{PaperManifest, Segment};
 use crate::text_util::normalize_title;
+
+/// A single entity from api.urantia.dev's topEntities aggregate.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TopEntity {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    pub count: u32,
+}
+
+/// Fetch the top entities for a paper from api.urantia.dev.
+/// Returns an empty Vec on any error (metadata is best-effort).
+pub async fn fetch_top_entities(paper_id: &str) -> Vec<TopEntity> {
+    #[derive(Deserialize)]
+    struct Response {
+        data: Data,
+    }
+    #[derive(Deserialize)]
+    struct Data {
+        paper: Paper,
+    }
+    #[derive(Deserialize)]
+    struct Paper {
+        #[serde(rename = "topEntities", default)]
+        top_entities: Vec<TopEntity>,
+    }
+
+    let url = format!(
+        "https://api.urantia.dev/papers/{}?include=topEntities",
+        paper_id
+    );
+    match reqwest::get(&url).await {
+        Ok(res) if res.status().is_success() => match res.json::<Response>().await {
+            Ok(parsed) => parsed.data.paper.top_entities,
+            Err(e) => {
+                eprintln!("  Warning: failed to parse topEntities for paper {}: {}", paper_id, e);
+                Vec::new()
+            }
+        },
+        Ok(res) => {
+            eprintln!(
+                "  Warning: topEntities fetch for paper {} returned {}",
+                paper_id,
+                res.status()
+            );
+            Vec::new()
+        }
+        Err(e) => {
+            eprintln!("  Warning: topEntities fetch for paper {} failed: {}", paper_id, e);
+            Vec::new()
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct VideoMetadata {
@@ -28,7 +82,10 @@ fn format_timestamp(total_seconds: u32) -> String {
     }
 }
 
-pub fn generate_metadata(manifest: &PaperManifest) -> VideoMetadata {
+pub fn generate_metadata(
+    manifest: &PaperManifest,
+    top_entities: &[TopEntity],
+) -> VideoMetadata {
     let paper_id = &manifest.paper_id;
     let is_foreword = paper_id == "0";
 
@@ -86,23 +143,46 @@ pub fn generate_metadata(manifest: &PaperManifest) -> VideoMetadata {
         )
     };
 
-    let description = [
-        &intro_text,
-        "",
-        &read_along_line,
-        &format!("Duration: {} minutes", minutes),
-        "",
-        "Chapters:",
-        &chapters.join("\n"),
-        "",
-        "Read the full text at https://urantiahub.com",
-        "API & developer tools at https://urantia.dev",
-        "",
-        "#UrantiaPapers #UrantiaBook #Spirituality #AudioBook",
-    ]
-    .join("\n");
+    // Build a "Key topics" line from the top 6 entities — real names of
+    // beings / places / concepts the paper discusses, sourced from the
+    // entity knowledge graph at api.urantia.dev.
+    let topics_line = if top_entities.is_empty() {
+        None
+    } else {
+        let names: Vec<String> = top_entities
+            .iter()
+            .take(6)
+            .map(|e| e.name.clone())
+            .collect();
+        Some(format!("Key topics: {}", names.join(", ")))
+    };
 
-    let tags = vec![
+    // Assemble description, inserting the topics line between the read-along
+    // blurb and the chapter list when available.
+    let mut description_lines: Vec<String> = Vec::new();
+    description_lines.push(intro_text.clone());
+    description_lines.push(String::new());
+    description_lines.push(read_along_line.clone());
+    description_lines.push(format!("Duration: {} minutes", minutes));
+    if let Some(line) = &topics_line {
+        description_lines.push(String::new());
+        description_lines.push(line.clone());
+    }
+    description_lines.push(String::new());
+    description_lines.push("Chapters:".to_string());
+    description_lines.push(chapters.join("\n"));
+    description_lines.push(String::new());
+    description_lines.push("Read the full text at https://urantiahub.com".to_string());
+    description_lines.push("API & developer tools at https://urantia.dev".to_string());
+    description_lines.push(String::new());
+    description_lines.push("#UrantiaPapers #UrantiaBook #Spirituality #AudioBook".to_string());
+    let description = description_lines.join("\n");
+
+    // Tags: start with the evergreen foundation, then append entity-derived
+    // tags (top 10 real entity names), then paper title. YouTube caps total
+    // tag character count at 500 so we cap entity names by an approximate
+    // budget rather than blindly appending everything.
+    let mut tags: Vec<String> = vec![
         "Urantia Papers".to_string(),
         "Urantia Book".to_string(),
         "Urantia".to_string(),
@@ -113,6 +193,15 @@ pub fn generate_metadata(manifest: &PaperManifest) -> VideoMetadata {
         "theology".to_string(),
         "UrantiaHub".to_string(),
     ];
+    let mut budget: i32 = 500 - tags.iter().map(|t| t.len() as i32 + 2).sum::<i32>();
+    for e in top_entities.iter().take(10) {
+        let cost = e.name.len() as i32 + 2;
+        if cost > budget {
+            break;
+        }
+        budget -= cost;
+        tags.push(e.name.clone());
+    }
 
     let file_name = config::video_filename(paper_id);
 
@@ -146,14 +235,14 @@ mod tests {
     #[test]
     fn foreword_title_format() {
         let m = manifest_for("0", "Foreword");
-        let meta = generate_metadata(&m);
+        let meta = generate_metadata(&m, &[]);
         assert_eq!(meta.title, "Foreword | The Urantia Papers");
     }
 
     #[test]
     fn regular_paper_title_format() {
         let m = manifest_for("1", "The Universal Father");
-        let meta = generate_metadata(&m);
+        let meta = generate_metadata(&m, &[]);
         assert_eq!(
             meta.title,
             "The Universal Father — Paper 1 | The Urantia Papers"
@@ -163,7 +252,7 @@ mod tests {
     #[test]
     fn paper_with_em_dash_title_format() {
         let m = manifest_for("118", "Supreme and Ultimate — Time and Space");
-        let meta = generate_metadata(&m);
+        let meta = generate_metadata(&m, &[]);
         assert_eq!(
             meta.title,
             "Supreme and Ultimate — Time and Space — Paper 118 | The Urantia Papers"
@@ -171,11 +260,12 @@ mod tests {
     }
 }
 
-pub fn generate_and_write(
+pub async fn generate_and_write(
     manifest: &PaperManifest,
     output_dir: &Path,
 ) -> Result<VideoMetadata> {
-    let metadata = generate_metadata(manifest);
+    let top_entities = fetch_top_entities(&manifest.paper_id).await;
+    let metadata = generate_metadata(manifest, &top_entities);
 
     // Write JSON
     let json = serde_json::to_string_pretty(&metadata)?;

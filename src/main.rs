@@ -449,7 +449,7 @@ async fn cmd_metadata(papers: &str, output_dir: &PathBuf) -> Result<()> {
         let manifest: data::manifest::PaperManifest =
             serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
 
-        let meta = metadata::youtube::generate_and_write(&manifest, &metadata_dir)?;
+        let meta = metadata::youtube::generate_and_write(&manifest, &metadata_dir).await?;
         println!("  Paper {}: \"{}\"", paper_id, meta.title);
         playlist.push(meta);
     }
