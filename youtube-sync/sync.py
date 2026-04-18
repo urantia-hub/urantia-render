@@ -57,9 +57,53 @@ HERE = Path(__file__).resolve().parent
 OUTPUT_DIR = HERE.parent / "output"
 METADATA_DIR = OUTPUT_DIR / "metadata"
 THUMBS_DIR = OUTPUT_DIR / "thumbnails"
+VIDEOS_DIR = OUTPUT_DIR / "videos"
 CLIENT_SECRET = HERE / "client_secret.json"
 TOKEN_FILE = HERE / "token.json"
 MAPPING_FILE = HERE / "mapping.json"
+PLAYLISTS_FILE = HERE / "playlists.json"
+UPLOAD_STATE_FILE = HERE / "upload-state.json"
+
+# Playlist config. Keys are stable IDs we use inside the script; values are
+# the actual YouTube playlist titles + which paper IDs belong.
+PLAYLISTS = {
+    "all": {
+        "title": "The Urantia Papers — Full Audio",
+        "description": "All 197 Urantia Papers, narrated with AI voice and synced text. Read along with every paper of The Urantia Papers.",
+    },
+    "part-1": {
+        "title": "Part I — The Central and Superuniverses",
+        "description": "Papers 1–31 of The Urantia Papers. The nature of God, the Paradise Trinity, Havona, and the central universe.",
+    },
+    "part-2": {
+        "title": "Part II — The Local Universe",
+        "description": "Papers 32–56 of The Urantia Papers. The evolution and administration of local universes, including our own Nebadon.",
+    },
+    "part-3": {
+        "title": "Part III — The History of Urantia",
+        "description": "Papers 57–119 of The Urantia Papers. The history of our planet from its formation through spiritual epochs.",
+    },
+    "part-4": {
+        "title": "Part IV — The Life and Teachings of Jesus",
+        "description": "Papers 120–196 of The Urantia Papers. The life, teachings, and mission of Jesus of Nazareth.",
+    },
+}
+
+
+def playlist_keys_for_paper(paper_id: str) -> list[str]:
+    """Return the playlist keys a paper should be added to, by paper id."""
+    p = int(paper_id)
+    keys = ["all"]
+    if 1 <= p <= 31:
+        keys.append("part-1")
+    elif 32 <= p <= 56:
+        keys.append("part-2")
+    elif 57 <= p <= 119:
+        keys.append("part-3")
+    elif 120 <= p <= 196:
+        keys.append("part-4")
+    # Paper 0 (Foreword) → "all" only.
+    return keys
 
 # Matches "Paper 1", "Paper 42", "Foreword" in existing video titles.
 TITLE_RE = re.compile(r"(Paper\s+)(\d{1,3})\b", re.IGNORECASE)
@@ -338,6 +382,261 @@ def cmd_diff(args):
         print(f"  new:     {new_desc}...")
 
 
+def cmd_playlists(args):
+    """Create the 5 playlists if missing, persist their IDs to playlists.json.
+
+    Idempotent: matches on title exactly. If a playlist with the same title
+    already exists, reuses it instead of creating a duplicate.
+    """
+    yt = get_service()
+
+    # Load existing IDs if we have them, then fill in the blanks.
+    existing: dict[str, str] = {}
+    if PLAYLISTS_FILE.exists():
+        existing = json.loads(PLAYLISTS_FILE.read_text())
+
+    # Fetch every playlist on the channel so we can match by title.
+    channel_playlists: dict[str, str] = {}
+    token = None
+    while True:
+        resp = (
+            yt.playlists()
+            .list(part="snippet", mine=True, maxResults=50, pageToken=token)
+            .execute()
+        )
+        for it in resp.get("items", []):
+            channel_playlists[it["snippet"]["title"]] = it["id"]
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+
+    out: dict[str, str] = {}
+    for key, cfg in PLAYLISTS.items():
+        title = cfg["title"]
+        if title in channel_playlists:
+            out[key] = channel_playlists[title]
+            print(f"  {key}: exists — {out[key]} ({title})")
+            continue
+        if args.dry_run:
+            print(f"  [dry-run] would create playlist '{title}' ({key})")
+            continue
+        created = (
+            yt.playlists()
+            .insert(
+                part="snippet,status",
+                body={
+                    "snippet": {"title": title, "description": cfg["description"]},
+                    "status": {"privacyStatus": "public"},
+                },
+            )
+            .execute()
+        )
+        out[key] = created["id"]
+        print(f"  {key}: created — {out[key]} ({title})")
+
+    if not args.dry_run:
+        PLAYLISTS_FILE.write_text(json.dumps(out, indent=2))
+        print(f"\n→ {PLAYLISTS_FILE.relative_to(HERE.parent)}")
+
+
+def cmd_upload(args):
+    """Upload freshly-rendered 4K videos to YouTube.
+
+    For each paper in range:
+      1. videos.insert the MP4 (1600 quota units).
+      2. thumbnails.set the 4K thumbnail (50 units).
+      3. playlistItems.insert to "All Papers" + the relevant Part playlist
+         (50 units × 2 = 100 units).
+
+    Per-paper quota cost: ~1750 units. Daily default is 10,000 — plan for
+    ~5 uploads/day unless you've requested a quota increase. State is
+    persisted to upload-state.json so re-runs resume cleanly.
+    """
+    if not PLAYLISTS_FILE.exists():
+        sys.exit(f"missing {PLAYLISTS_FILE}. run `./sync.py playlists` first.")
+    playlists = json.loads(PLAYLISTS_FILE.read_text())
+
+    state: dict[str, str] = {}
+    if UPLOAD_STATE_FILE.exists():
+        state = json.loads(UPLOAD_STATE_FILE.read_text())
+
+    paper_ids = _expand_range(args.papers)
+    yt = get_service()
+
+    uploaded = 0
+    skipped = 0
+    quota_used = 0
+
+    for pid in paper_ids:
+        if pid in state and not args.force:
+            print(f"  paper {pid}: already uploaded as {state[pid]}, skipping")
+            skipped += 1
+            continue
+
+        video_path = VIDEOS_DIR / f"tts-1-hd-nova-{pid}.mp4"
+        meta_path = METADATA_DIR / f"{pid}.json"
+        thumb_path = THUMBS_DIR / f"thumbnail-{pid}.png"
+
+        if not video_path.exists():
+            print(f"  paper {pid}: missing {video_path}, skipping")
+            skipped += 1
+            continue
+        if not meta_path.exists():
+            print(f"  paper {pid}: missing {meta_path}, skipping")
+            skipped += 1
+            continue
+
+        meta = json.loads(meta_path.read_text())
+
+        description = meta["description"]
+        if len(description) > 5000:
+            description = description[:4997] + "..."
+        tags = meta["tags"]
+        while sum(len(t) + 2 for t in tags) > 500 and tags:
+            tags = tags[:-1]
+
+        body = {
+            "snippet": {
+                "title": meta["title"],
+                "description": description,
+                "tags": tags,
+                "categoryId": "27",  # Education
+            },
+            "status": {
+                "privacyStatus": "public",
+                "madeForKids": False,
+                "selfDeclaredMadeForKids": False,
+            },
+        }
+
+        if args.dry_run:
+            plists = [playlists.get(k, "?") for k in playlist_keys_for_paper(pid)]
+            print(f"  [dry-run] paper {pid}:")
+            print(f"    title:     {meta['title']}")
+            print(f"    video:     {video_path.name} ({video_path.stat().st_size / 1024 / 1024:.0f} MB)")
+            print(f"    thumbnail: {thumb_path.name if thumb_path.exists() else '(missing)'}")
+            print(f"    playlists: {' + '.join(plists)}")
+            uploaded += 1
+            continue
+
+        try:
+            media = MediaFileUpload(
+                str(video_path), chunksize=8 * 1024 * 1024, resumable=True, mimetype="video/mp4"
+            )
+            req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+            response = None
+            while response is None:
+                status, response = req.next_chunk()
+                if status:
+                    pct = int(status.progress() * 100)
+                    print(f"\r  paper {pid}: uploading {pct}%", end="", flush=True)
+            video_id = response["id"]
+            print(f"\r  paper {pid}: uploaded as {video_id}")
+            quota_used += 1600
+
+            if thumb_path.exists():
+                yt.thumbnails().set(
+                    videoId=video_id,
+                    media_body=MediaFileUpload(str(thumb_path), mimetype="image/png"),
+                ).execute()
+                print(f"    thumbnail: {thumb_path.name}")
+                quota_used += 50
+
+            for key in playlist_keys_for_paper(pid):
+                pl_id = playlists.get(key)
+                if not pl_id:
+                    print(f"    WARN: playlist key '{key}' not in playlists.json")
+                    continue
+                yt.playlistItems().insert(
+                    part="snippet",
+                    body={
+                        "snippet": {
+                            "playlistId": pl_id,
+                            "resourceId": {"kind": "youtube#video", "videoId": video_id},
+                        }
+                    },
+                ).execute()
+                print(f"    playlist: {PLAYLISTS[key]['title']}")
+                quota_used += 50
+
+            state[pid] = video_id
+            UPLOAD_STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
+            uploaded += 1
+            print(f"    (quota used so far: ~{quota_used} units)")
+
+        except Exception as e:
+            print(f"\n  paper {pid}: FAILED — {e}")
+            # Persist whatever we have so resumes don't lose ground.
+            if state:
+                UPLOAD_STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
+            if "quotaExceeded" in str(e):
+                print("  quota exhausted — stop and retry tomorrow with --resume")
+                break
+            skipped += 1
+
+    print(f"\n{'DRY-RUN ' if args.dry_run else ''}done: {uploaded} uploaded, {skipped} skipped")
+    print(f"approximate quota used: {quota_used} units (10,000/day default)")
+
+
+def cmd_delete(args):
+    """Delete videos by paper id (from mapping.json). Requires --yes to actually delete.
+
+    Intended for the 'clean slate' workflow: delete the old 1080p uploads
+    before bulk-uploading the new 4K versions. Quota cost: 50 units per
+    delete.
+    """
+    if not MAPPING_FILE.exists():
+        sys.exit(f"missing {MAPPING_FILE}. run `./sync.py list` first.")
+    mapping = json.loads(MAPPING_FILE.read_text())
+
+    paper_ids = _expand_range(args.papers) if args.papers else sorted(
+        [k for k in mapping.keys() if not k.startswith("_")], key=lambda s: int(s)
+    )
+
+    targets = [(pid, mapping[pid]) for pid in paper_ids if pid in mapping]
+    if not targets:
+        sys.exit("no matching videos to delete")
+
+    print(f"will delete {len(targets)} videos:")
+    for pid, vid in targets[:20]:
+        print(f"  paper {pid}: {vid}")
+    if len(targets) > 20:
+        print(f"  ... and {len(targets) - 20} more")
+
+    if not args.yes:
+        print("\nrerun with --yes to actually delete. quota: 50 units per delete.")
+        return
+
+    yt = get_service()
+    deleted = 0
+    for pid, vid in targets:
+        try:
+            yt.videos().delete(id=vid).execute()
+            print(f"  deleted paper {pid}: {vid}")
+            deleted += 1
+        except Exception as e:
+            print(f"  paper {pid}: FAILED — {e}")
+            if "quotaExceeded" in str(e):
+                break
+
+    print(f"\ndeleted {deleted} of {len(targets)}")
+
+
+def _expand_range(spec: str | None) -> list[str]:
+    """Parse a '1,3,5' or '0-196' spec into a sorted list of string ids."""
+    if not spec:
+        return []
+    out: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if "-" in part:
+            a, b = part.split("-", 1)
+            out.update(range(int(a), int(b) + 1))
+        elif part:
+            out.add(int(part))
+    return [str(x) for x in sorted(out)]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -373,6 +672,33 @@ def main():
         ),
     )
     sp_push.set_defaults(func=cmd_push)
+
+    sp_playlists = sub.add_parser(
+        "playlists", help="create 5 channel playlists (idempotent) and save IDs"
+    )
+    sp_playlists.add_argument("--dry-run", action="store_true")
+    sp_playlists.set_defaults(func=cmd_playlists)
+
+    sp_upload = sub.add_parser(
+        "upload", help="upload freshly-rendered 4K videos + thumbnails + playlist assignment"
+    )
+    sp_upload.add_argument(
+        "--papers", required=True, help="paper range, e.g. '1' or '0-196' or '1,3,5'"
+    )
+    sp_upload.add_argument("--dry-run", action="store_true")
+    sp_upload.add_argument(
+        "--force", action="store_true", help="re-upload even if paper is in upload-state.json"
+    )
+    sp_upload.set_defaults(func=cmd_upload)
+
+    sp_delete = sub.add_parser(
+        "delete", help="delete videos by paper id (from mapping.json)"
+    )
+    sp_delete.add_argument(
+        "--papers", help="paper range (default: all mapped)"
+    )
+    sp_delete.add_argument("--yes", action="store_true", help="confirm deletion")
+    sp_delete.set_defaults(func=cmd_delete)
 
     args = p.parse_args()
     args.func(args)
