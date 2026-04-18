@@ -60,6 +60,7 @@ DAILY_QUOTA_BUDGET = 8500  # leave a 1500-unit buffer under the 10k hard limit
 SLEEP_AFTER_UPLOAD_SEC = 600  # 10 min — spread uploads through the day
 SLEEP_WHEN_PAUSED_SEC = 300  # 5 min
 SLEEP_ON_ERROR_SEC = 900  # 15 min — back off on transient errors
+PARTIAL_MP4_THRESHOLD_BYTES = 50 * 1024 * 1024  # 50 MB — any smaller 4K paper MP4 is a partial render
 
 
 def log(msg: str) -> None:
@@ -361,8 +362,31 @@ def one_iteration() -> int:
     return SLEEP_AFTER_UPLOAD_SEC
 
 
+def cleanup_partial_renders() -> None:
+    """Delete suspiciously small MP4s left behind by a killed render.
+
+    When the daemon is stopped mid-render, the ffmpeg subprocess gets SIGTERM
+    but the output .mp4 file is left on disk, truncated. On next startup the
+    daemon would see the file and skip re-rendering, effectively losing that
+    paper. Any 4K paper video is expected to be >= 100 MB (shortest papers
+    are ~5 min × ~30 MB/min of h264 = ~150 MB), so a 50 MB floor is a safe
+    "this is a partial" heuristic.
+    """
+    if not VIDEOS_DIR.exists():
+        return
+    for mp4 in VIDEOS_DIR.glob("tts-1-hd-nova-*.mp4"):
+        try:
+            size = mp4.stat().st_size
+        except OSError:
+            continue
+        if size < PARTIAL_MP4_THRESHOLD_BYTES:
+            log(f"startup cleanup: deleting partial render {mp4.name} ({size / 1024 / 1024:.0f} MB)")
+            mp4.unlink(missing_ok=True)
+
+
 def main() -> None:
     log(f"orchestrator starting (pid {os.getpid()}, root {ROOT})")
+    cleanup_partial_renders()
     while True:
         try:
             sleep_for = one_iteration()
