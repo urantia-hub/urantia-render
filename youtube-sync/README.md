@@ -109,6 +109,12 @@ If the daemon has pre-rendered assets sitting in `output/videos/`,
 This lets you upload faster than the 5/day API cap — useful during downtime
 when you want to push a batch through by hand.
 
+**Safety net:** even if you forget to run `mark-done`, the daemon refreshes
+state from the channel before every upload cycle (costs ~5 quota units per
+refresh). Any paper it finds on the channel that isn't already in
+`upload-state.json` gets merged automatically, so it won't clobber a manual
+upload with a duplicate.
+
 ### Reboot behavior
 
 The daemon runs under `nohup`, not `launchd`, because macOS TCC restrictions
