@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from sync import (  # noqa: E402
     HERE, METADATA_DIR, MAPPING_FILE, PLAYLISTS_FILE, UPLOAD_STATE_FILE,
     THUMBS_DIR, VIDEOS_DIR, PLAYLISTS, get_service, playlist_keys_for_paper,
+    list_uploads, paper_id_from_title,
 )
 from googleapiclient.http import MediaFileUpload  # noqa: E402
 
@@ -54,6 +55,7 @@ LOG_FILE = HERE / "orchestrator.log"
 # ─── Tuning ───
 PAPER_IDS = [str(i) for i in range(0, 197)]  # 0..196
 PER_UPLOAD_COST = 1750  # videos.insert 1600 + thumbnails.set 50 + 2x playlistItems.insert 100
+CHANNEL_REFRESH_COST = 5  # channels.list 1 + ~4 playlistItems.list pages
 DAILY_QUOTA_BUDGET = 8500  # leave a 1500-unit buffer under the 10k hard limit
 SLEEP_AFTER_UPLOAD_SEC = 600  # 10 min — spread uploads through the day
 SLEEP_WHEN_PAUSED_SEC = 300  # 5 min
@@ -232,6 +234,38 @@ def upload_paper(pid: str, yt) -> str | None:
     return video_id
 
 
+def refresh_upload_state_from_channel(yt, done: dict[str, str]) -> dict[str, str]:
+    """Query the channel and merge any discovered paper-N videos into upload-state.json.
+
+    Protects against duplicate uploads when the user manually adds a paper via
+    YouTube Studio (to bypass API quota) and forgets to run `mark-done`. Called
+    before each upload cycle. Cheap — ~5 quota units per refresh.
+
+    Only adds missing entries. If the channel has paper N as videoId Y but
+    local state already has paper N as videoId X, keep X and log a warning —
+    the user can override with `mark-done` if they really meant to swap.
+    """
+    videos = list_uploads(yt)
+    record_quota_usage(CHANNEL_REFRESH_COST)
+    merged = 0
+    for v in videos:
+        pid = paper_id_from_title(v["title"])
+        if pid is None:
+            continue
+        if pid not in done:
+            done[pid] = v["videoId"]
+            log(f"channel already has paper {pid} as {v['videoId']} — merged into upload-state")
+            merged += 1
+        elif done[pid] != v["videoId"]:
+            log(
+                f"WARN: channel has paper {pid} as {v['videoId']} but local state "
+                f"says {done[pid]}. Keeping local. Run `mark-done {pid} {v['videoId']}` to swap."
+            )
+    if merged:
+        save_upload_state(done)
+    return done
+
+
 def assets_exist(pid: str) -> bool:
     return (
         (VIDEOS_DIR / f"tts-1-hd-nova-{pid}.mp4").exists()
@@ -289,11 +323,23 @@ def one_iteration() -> int:
         log(f"quota exhausted today ({remaining} units left); entering render-ahead mode")
         return render_ahead_or_sleep(done)
 
+    # About to upload — first, refresh state from the channel so we don't
+    # re-upload any paper the user manually added via YouTube Studio.
+    yt = get_service()
+    try:
+        done = refresh_upload_state_from_channel(yt, done)
+    except Exception as e:
+        log(f"WARN: channel refresh failed ({e!r}); proceeding with local state")
+
+    pid = next_paper_id(done)
+    if pid is None:
+        log("all 197 papers uploaded — nothing to do. Sleeping 1 hour before next check.")
+        return 3600
+
     if not ensure_paper_assets(pid):
         log(f"paper {pid}: asset generation failed; backing off")
         return SLEEP_ON_ERROR_SEC
 
-    yt = get_service()
     try:
         video_id = upload_paper(pid, yt)
     except Exception as e:
