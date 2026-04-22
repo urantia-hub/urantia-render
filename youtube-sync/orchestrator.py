@@ -151,6 +151,35 @@ def run_cargo_subcommand(subcmd: str, paper_id: str) -> bool:
     return True
 
 
+AUDIO_DIR = ROOT / "output" / "audio"
+# Shortest papers produce ~5 minutes of audio across a handful of section
+# intros + 20-30 paragraphs. Anything with fewer than 10 MP3s is almost
+# certainly a partial download and would produce a silent render.
+MIN_MP3_COUNT = 10
+
+
+def ensure_audio_downloaded(pid: str) -> bool:
+    """Ensure output/audio/{pid}/ has enough MP3s to render real audio.
+
+    Guards against the silent-render failure mode: the render binary accepts
+    missing source MP3s and produces an empty audio track rather than failing.
+    We validate before calling render; if MP3s are short/missing, invoke
+    `urantia-render download` to fetch them from the CDN.
+    """
+    paper_audio_dir = AUDIO_DIR / pid
+    mp3_count = len(list(paper_audio_dir.glob("*.mp3"))) if paper_audio_dir.exists() else 0
+    if mp3_count >= MIN_MP3_COUNT:
+        return True
+    log(f"paper {pid}: only {mp3_count} MP3s in {paper_audio_dir}; downloading from CDN")
+    if not run_cargo_subcommand("download", pid):
+        return False
+    mp3_count = len(list(paper_audio_dir.glob("*.mp3"))) if paper_audio_dir.exists() else 0
+    if mp3_count < MIN_MP3_COUNT:
+        log(f"paper {pid}: post-download still only {mp3_count} MP3s; refusing to render")
+        return False
+    return True
+
+
 def ensure_paper_assets(pid: str) -> bool:
     """Render MP4, metadata, and thumbnail for a paper if missing. Returns True on success."""
     video_path = VIDEOS_DIR / f"tts-1-hd-nova-{pid}.mp4"
@@ -158,6 +187,10 @@ def ensure_paper_assets(pid: str) -> bool:
     thumb_path = THUMBS_DIR / f"thumbnail-{pid}.png"
 
     if not video_path.exists():
+        # Guard: audio source must be present before we render, otherwise
+        # the renderer silently produces an empty audio track.
+        if not ensure_audio_downloaded(pid):
+            return False
         log(f"paper {pid}: rendering MP4 (this takes ~45-50 min on M1)")
         if not run_cargo_subcommand("render", pid):
             return False

@@ -56,6 +56,19 @@ enum Commands {
         #[arg(long)]
         audio_dir: Option<PathBuf>,
     },
+    /// Build the WAV audio track for paper(s), skipping the video pipeline.
+    /// Used for remediating previously-rendered silent MP4s: produce this
+    /// WAV, then use ffmpeg to swap it into the existing MP4 without
+    /// re-encoding video.
+    AudioOnly {
+        #[arg(long, default_value = "0-196")]
+        papers: String,
+        #[arg(long, default_value = "./output")]
+        output_dir: PathBuf,
+        /// Audio directory (supports nested {paperId}/ or flat tts-1-hd-nova-{id}.mp3 layout)
+        #[arg(long)]
+        audio_dir: Option<PathBuf>,
+    },
     /// Generate YouTube metadata JSON
     Metadata {
         #[arg(long, default_value = "0-196")]
@@ -185,6 +198,13 @@ async fn main() -> Result<()> {
             audio_dir,
         } => {
             cmd_render(&papers, &output_dir, skip_existing, preview, max_seconds, concurrency, audio_dir.as_deref()).await?;
+        }
+        Commands::AudioOnly {
+            papers,
+            output_dir,
+            audio_dir,
+        } => {
+            cmd_audio_only(&papers, &output_dir, audio_dir.as_deref())?;
         }
         Commands::Metadata {
             papers,
@@ -426,6 +446,68 @@ async fn cmd_render(
     });
 
     println!("All renders complete!");
+    Ok(())
+}
+
+fn audio_only_single_paper(
+    paper_id: u32,
+    manifests_dir: &std::path::Path,
+    wav_dir: &std::path::Path,
+    audio_dir: &std::path::Path,
+) -> Result<()> {
+    let manifest_path = manifests_dir.join(format!("{}.json", paper_id));
+    if !manifest_path.exists() {
+        eprintln!("  Skipping Paper {}: no manifest. Run `manifest` first.", paper_id);
+        return Ok(());
+    }
+
+    let manifest: data::manifest::PaperManifest =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
+
+    let wav_path = wav_dir.join(format!("{}.wav", paper_id));
+    println!(
+        "  Paper {}: \"{}\" -> {}",
+        paper_id, manifest.paper_title, wav_path.display()
+    );
+
+    let start = std::time::Instant::now();
+    let (pcm, sample_rate) = audio::concat::build_audio_buffer(&manifest, audio_dir)?;
+    audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
+
+    let elapsed = start.elapsed().as_secs();
+    let size_mb = std::fs::metadata(&wav_path)?.len() as f64 / 1024.0 / 1024.0;
+    println!(
+        "  Done: Paper {} WAV ({:.1} MB, {}s, {} Hz)",
+        paper_id, size_mb, elapsed, sample_rate
+    );
+    Ok(())
+}
+
+fn cmd_audio_only(
+    papers: &str,
+    output_dir: &PathBuf,
+    audio_dir_override: Option<&std::path::Path>,
+) -> Result<()> {
+    use rayon::prelude::*;
+
+    let paper_ids = parse_paper_range(papers);
+    let manifests_dir = output_dir.join("manifests");
+    let wav_dir = output_dir.join("wav");
+    let audio_dir = audio_dir_override
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| output_dir.join("audio"));
+
+    std::fs::create_dir_all(&wav_dir)?;
+
+    println!("Building audio WAVs for {} papers...", paper_ids.len());
+
+    paper_ids.par_iter().for_each(|paper_id| {
+        if let Err(e) = audio_only_single_paper(*paper_id, &manifests_dir, &wav_dir, &audio_dir) {
+            eprintln!("  Error assembling audio for Paper {}: {}", paper_id, e);
+        }
+    });
+
+    println!("All audio-only builds complete!");
     Ok(())
 }
 
