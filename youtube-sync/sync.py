@@ -52,7 +52,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-SCOPES = ["https://www.googleapis.com/auth/youtube"]
+# youtube.force-ssl is a superset of youtube: same video/playlist/upload
+# access, plus the comment write endpoints (commentThreads.insert,
+# comments.update) that the pinned-nav comment flow depends on. Replacing
+# the narrower scope means the cached token.json needs a one-time refresh
+# (delete it, then re-run any ./sync.py command to trigger the OAuth flow).
+SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
 HERE = Path(__file__).resolve().parent
 OUTPUT_DIR = HERE.parent / "output"
 METADATA_DIR = OUTPUT_DIR / "metadata"
@@ -63,9 +68,11 @@ TOKEN_FILE = HERE / "token.json"
 MAPPING_FILE = HERE / "mapping.json"
 PLAYLISTS_FILE = HERE / "playlists.json"
 UPLOAD_STATE_FILE = HERE / "upload-state.json"
+COMMENT_STATE_FILE = HERE / "comment-state.json"
 
 # Playlist config. Keys are stable IDs we use inside the script; values are
-# the actual YouTube playlist titles + which paper IDs belong.
+# the actual YouTube playlist titles + which paper IDs belong. The `roman`
+# field is used by the pinned-nav comment builder.
 PLAYLISTS = {
     "all": {
         "title": "The Urantia Papers — Full Audio",
@@ -74,18 +81,22 @@ PLAYLISTS = {
     "part-1": {
         "title": "Part I — The Central and Superuniverses",
         "description": "Papers 1–31 of The Urantia Papers. The nature of God, the Paradise Trinity, Havona, and the central universe.",
+        "roman": "I",
     },
     "part-2": {
         "title": "Part II — The Local Universe",
         "description": "Papers 32–56 of The Urantia Papers. The evolution and administration of local universes, including our own Nebadon.",
+        "roman": "II",
     },
     "part-3": {
         "title": "Part III — The History of Urantia",
         "description": "Papers 57–119 of The Urantia Papers. The history of our planet from its formation through spiritual epochs.",
+        "roman": "III",
     },
     "part-4": {
         "title": "Part IV — The Life and Teachings of Jesus",
         "description": "Papers 120–196 of The Urantia Papers. The life, teachings, and mission of Jesus of Nazareth.",
+        "roman": "IV",
     },
 }
 
@@ -177,6 +188,169 @@ def paper_id_from_title(title: str) -> str | None:
     if FOREWORD_RE.search(title):
         return "0"
     return None
+
+
+# ─── Pinned-nav comment helpers ────────────────────────────────────────────
+#
+# Each uploaded Urantia Paper video gets a pinned comment containing prev /
+# playlist / next navigation plus a one-line Part orientation. Comments are
+# posted via the YouTube Data API; pinning is UI-only (not exposed by the API
+# as of 2026), so the channel owner pins manually in YouTube Studio. The
+# comment body is regenerated each time a neighbouring paper uploads, so that
+# the "Next" link can be filled in after a paper's successor lands.
+
+def load_comment_state() -> dict[str, str]:
+    """Read comment-state.json (paper id -> top-level comment id)."""
+    if COMMENT_STATE_FILE.exists():
+        return json.loads(COMMENT_STATE_FILE.read_text())
+    return {}
+
+
+def save_comment_state(state: dict[str, str]) -> None:
+    COMMENT_STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
+
+
+def merged_video_ids() -> dict[str, str]:
+    """Return paper id -> video id using both upload-state and mapping sources.
+
+    upload-state.json is the daemon's truth. mapping.json is what `./sync.py
+    list` discovered on the channel (includes manual uploads). We merge, with
+    upload-state preferred when both disagree.
+    """
+    merged: dict[str, str] = {}
+    if MAPPING_FILE.exists():
+        for k, v in json.loads(MAPPING_FILE.read_text()).items():
+            if k.startswith("_"):
+                continue
+            merged[k] = v
+    if UPLOAD_STATE_FILE.exists():
+        merged.update(json.loads(UPLOAD_STATE_FILE.read_text()))
+    return merged
+
+
+def _part_for_paper(paper_id: str) -> dict | None:
+    """Return the Part config dict (from PLAYLISTS) for a paper, or None for Foreword."""
+    keys = playlist_keys_for_paper(paper_id)
+    for k in keys:
+        if k.startswith("part-"):
+            return PLAYLISTS[k] | {"key": k}
+    return None
+
+
+def _video_url(video_id: str, all_playlist_id: str) -> str:
+    return f"https://youtu.be/{video_id}?list={all_playlist_id}"
+
+
+def _playlist_url(playlist_id: str) -> str:
+    return f"https://www.youtube.com/playlist?list={playlist_id}"
+
+
+def build_pinned_comment(
+    paper_id: str, done: dict[str, str], playlists: dict[str, str]
+) -> str:
+    """Render the pinned-nav comment body for `paper_id`.
+
+    Minimalist shape: prev/next links (routed through the All Papers playlist
+    so YouTube's autoplay keeps viewers in the queue) plus a one-line Part
+    orientation and a direct link to the read-along page on urantiahub.com.
+    Full-playlist and per-part playlist links are intentionally omitted —
+    the ?list= parameter on prev/next already surfaces the full queue in
+    YouTube's sidebar, and the channel handle (@urantia-hub) is always one
+    tap away from any video page.
+
+    `done` maps paper id -> video id for every paper currently on the channel.
+    Omits the prev line if paper N-1 isn't in `done`; omits the next line if
+    paper N+1 isn't there. `playlists` is playlists.json (key -> playlist id).
+    """
+    pid = int(paper_id)
+    all_id = playlists["all"]
+
+    prev_pid = str(pid - 1)
+    next_pid = str(pid + 1)
+    has_prev = pid > 0 and prev_pid in done
+    has_next = pid < 196 and next_pid in done
+
+    lines: list[str] = []
+
+    if has_prev:
+        lines.append(
+            f"← Previous (Paper {prev_pid}): {_video_url(done[prev_pid], all_id)}"
+        )
+    if has_next:
+        lines.append(
+            f"Next (Paper {next_pid}) →: {_video_url(done[next_pid], all_id)}"
+        )
+    # Read along is grouped with the nav links (not below the orientation)
+    # because YouTube truncates the comment with a "Read more" after ~4 lines,
+    # and the most-actionable links should stay above the fold.
+    lines.append(f"Read along: https://urantiahub.com/papers/{paper_id}")
+
+    lines.append("")
+
+    part = _part_for_paper(paper_id)
+    if part is None:
+        lines.append("You're reading the Foreword. The main text begins with Part I.")
+    else:
+        lines.append(f"You're in {part['title']}.")
+
+    if pid == 196:
+        lines.append("You've reached the final paper. Thanks for reading along!")
+
+    return "\n".join(lines)
+
+
+def post_pinned_comment(yt, video_id: str, body: str) -> str:
+    """Post a top-level comment on a video. Returns the new comment id. 50 quota units."""
+    resp = (
+        yt.commentThreads()
+        .insert(
+            part="snippet",
+            body={
+                "snippet": {
+                    "videoId": video_id,
+                    "topLevelComment": {"snippet": {"textOriginal": body}},
+                }
+            },
+        )
+        .execute()
+    )
+    return resp["snippet"]["topLevelComment"]["id"]
+
+
+def update_pinned_comment(yt, comment_id: str, body: str) -> None:
+    """Update an existing top-level comment in-place. 50 quota units.
+
+    Pinning is preserved through edits (must remain true — verify in the browser
+    before relying on this for back-patching).
+    """
+    yt.comments().update(
+        part="snippet",
+        body={"id": comment_id, "snippet": {"textOriginal": body}},
+    ).execute()
+
+
+def sync_comment_for(
+    yt,
+    paper_id: str,
+    done: dict[str, str],
+    comment_state: dict[str, str],
+    playlists: dict[str, str],
+) -> str | None:
+    """Post or update the pinned-nav comment for a paper. Mutates `comment_state` in place.
+
+    Returns the comment id (new or existing). Returns None if the paper isn't
+    uploaded yet — nothing to post onto.
+    """
+    if paper_id not in done:
+        return None
+    body = build_pinned_comment(paper_id, done, playlists)
+    existing_id = comment_state.get(paper_id)
+    if existing_id:
+        update_pinned_comment(yt, existing_id, body)
+        return existing_id
+    new_id = post_pinned_comment(yt, done[paper_id], body)
+    comment_state[paper_id] = new_id
+    return new_id
 
 
 def cmd_list(args):
@@ -704,6 +878,82 @@ def cmd_nuke(args):
     )
 
 
+def cmd_backfill_comments(args):
+    """Post or refresh pinned-nav comments on every uploaded paper.
+
+    Walks papers in id order, rendering a comment body against the current
+    channel state and either posting it (if comment-state.json has no entry
+    for that paper) or updating the existing comment in-place. Idempotent —
+    re-running is safe and cheap (50 quota units per touched comment).
+
+    After posting, the channel owner must pin each new comment manually in
+    YouTube Studio (the Data API does not expose a pin endpoint). Pinning
+    survives edits, so back-patches of already-pinned comments are invisible
+    to pinning — only brand-new posts need a manual pin.
+    """
+    if not PLAYLISTS_FILE.exists():
+        sys.exit(f"missing {PLAYLISTS_FILE}. run `./sync.py playlists` first.")
+    playlists = json.loads(PLAYLISTS_FILE.read_text())
+
+    done = merged_video_ids()
+    if not done:
+        sys.exit("no uploads recorded — run `./sync.py list` or `./sync.py upload` first.")
+
+    if args.papers:
+        paper_ids = _expand_range(args.papers)
+    else:
+        paper_ids = sorted(done.keys(), key=lambda s: int(s))
+
+    yt = None
+    comment_state = load_comment_state()
+
+    posted = 0
+    updated = 0
+    skipped = 0
+    failed = 0
+
+    for pid in paper_ids:
+        if pid not in done:
+            print(f"  paper {pid}: not uploaded, skipping")
+            skipped += 1
+            continue
+
+        body = build_pinned_comment(pid, done, playlists)
+        existing = comment_state.get(pid)
+
+        if not args.yes:
+            action = "UPDATE" if existing else "POST  "
+            print(f"\n=== paper {pid} [{action}] video {done[pid]} ===")
+            print(body)
+            continue
+
+        if yt is None:
+            yt = get_service()
+
+        try:
+            cid = sync_comment_for(yt, pid, done, comment_state, playlists)
+            if existing:
+                print(f"  paper {pid}: updated comment {cid}")
+                updated += 1
+            else:
+                print(f"  paper {pid}: posted comment {cid} — PIN IN STUDIO")
+                posted += 1
+            save_comment_state(comment_state)
+        except Exception as e:
+            print(f"  paper {pid}: FAILED — {e}")
+            failed += 1
+            if "quotaExceeded" in str(e):
+                print("  quota exhausted — stop and retry tomorrow")
+                break
+
+    if not args.yes:
+        print(f"\nDRY-RUN (no API calls). Re-run with --yes to actually post.")
+    else:
+        print(f"\ndone: {posted} posted, {updated} updated, {skipped} skipped, {failed} failed")
+        if posted:
+            print(f"remember to pin the {posted} new comment(s) in YouTube Studio")
+
+
 def _expand_range(spec: str | None) -> list[str]:
     """Parse a '1,3,5' or '0-196' spec into a sorted list of string ids."""
     if not spec:
@@ -787,6 +1037,21 @@ def main():
     )
     sp_nuke.add_argument("--yes", action="store_true", help="required to actually delete")
     sp_nuke.set_defaults(func=cmd_nuke)
+
+    sp_bf = sub.add_parser(
+        "backfill-comments",
+        help="post/update pinned-nav comments on every uploaded paper (50 units each)",
+    )
+    sp_bf.add_argument(
+        "--yes",
+        action="store_true",
+        help="actually post (default: dry-run, prints comment bodies without calling the API)",
+    )
+    sp_bf.add_argument(
+        "--papers",
+        help="target a paper range (e.g. --papers 62, --papers 0-196, --papers 45,46,62-79)",
+    )
+    sp_bf.set_defaults(func=cmd_backfill_comments)
 
     args = p.parse_args()
     args.func(args)

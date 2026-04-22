@@ -3,6 +3,7 @@ token.json
 mapping.json
 playlists.json
 upload-state.json
+comment-state.json
 quota-log.json
 orchestrator.log
 orchestrator.pid

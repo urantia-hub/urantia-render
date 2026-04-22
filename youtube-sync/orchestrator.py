@@ -42,6 +42,7 @@ from sync import (  # noqa: E402
     HERE, METADATA_DIR, MAPPING_FILE, PLAYLISTS_FILE, UPLOAD_STATE_FILE,
     THUMBS_DIR, VIDEOS_DIR, PLAYLISTS, get_service, playlist_keys_for_paper,
     list_uploads, paper_id_from_title,
+    load_comment_state, save_comment_state, sync_comment_for,
 )
 from googleapiclient.http import MediaFileUpload  # noqa: E402
 
@@ -54,7 +55,7 @@ LOG_FILE = HERE / "orchestrator.log"
 
 # ─── Tuning ───
 PAPER_IDS = [str(i) for i in range(0, 197)]  # 0..196
-PER_UPLOAD_COST = 1750  # videos.insert 1600 + thumbnails.set 50 + 2x playlistItems.insert 100
+PER_UPLOAD_COST = 1850  # videos.insert 1600 + thumbnails.set 50 + 2x playlistItems.insert 100 + commentThreads.insert 50 + comments.update 50
 CHANNEL_REFRESH_COST = 5  # channels.list 1 + ~4 playlistItems.list pages
 DAILY_QUOTA_BUDGET = 8500  # leave a 1500-unit buffer under the 10k hard limit
 SLEEP_AFTER_UPLOAD_SEC = 600  # 10 min — spread uploads through the day
@@ -231,6 +232,25 @@ def upload_paper(pid: str, yt) -> str | None:
             body={"snippet": {"playlistId": pl_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}},
         ).execute()
         log(f"  added to playlist: {PLAYLISTS[key]['title']}")
+
+    # Upsert the pinned-nav comment for this paper (no "Next" link yet —
+    # paper N+1 doesn't exist). Then back-patch paper N-1's comment so its
+    # "Next" link now points at the paper we just uploaded. Failures are
+    # non-fatal: a missing/stale comment can be healed with
+    # `./sync.py backfill-comments`, but re-uploading would create a dupe.
+    try:
+        done_plus_new = {**load_upload_state(), pid: video_id}
+        comment_state = load_comment_state()
+        cid = sync_comment_for(yt, pid, done_plus_new, comment_state, playlists)
+        if cid:
+            log(f"  pinned-nav comment synced for paper {pid}: {cid} — PIN IN STUDIO")
+        prev_pid = str(int(pid) - 1)
+        if int(pid) > 0 and prev_pid in done_plus_new:
+            sync_comment_for(yt, prev_pid, done_plus_new, comment_state, playlists)
+            log(f"  back-patched paper {prev_pid}'s comment with new next link")
+        save_comment_state(comment_state)
+    except Exception as e:
+        log(f"  WARN: comment sync failed for paper {pid}: {e!r}")
 
     return video_id
 

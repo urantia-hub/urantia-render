@@ -123,6 +123,46 @@ granted to `/bin/bash`. After a reboot, run `./bin/urantia-uploader start`
 once to resume — all state (upload-state.json, quota-log.json, rendered
 files) persists on disk.
 
+### Pinned nav comment
+
+Every uploaded paper gets a pinned comment with prev / next links, a
+one-line Part orientation, and a direct link to the read-along page on
+urantiahub.com. Prev and next are routed through the "All Papers" playlist
+(`?list=`) so YouTube's autoplay and next/prev buttons keep viewers in the
+queue even if they landed on a random paper from search. The explicit
+"Full playlist" and per-part playlist links have been intentionally left
+out — the sidebar queue already surfaces the full catalog, and the channel
+handle is always one tap away.
+
+The daemon posts the comment automatically right after each upload. Because
+the "Next" link can't be known until paper N+1 also exists, the daemon also
+back-patches paper N-1's comment every time a new paper uploads, filling in
+the newly-known next link. Pinning is UI-only on YouTube (the Data API
+doesn't expose a pin endpoint), so each brand-new comment needs one manual
+click in YouTube Studio:
+
+> Studio → Comments → three-dot menu on the comment → Pin.
+
+This takes ~10s per video and slots into the same Studio session used for
+drag-and-drop uploads. Pinning survives later edits, so back-patches don't
+need a re-pin.
+
+For the already-uploaded papers (or to heal any comments the daemon failed
+to post), use `./sync.py backfill-comments`:
+
+```bash
+./sync.py backfill-comments                             # dry-run across every uploaded paper
+./sync.py backfill-comments --papers 62                 # dry-run a single paper
+./sync.py backfill-comments --papers 45,46,62-79        # dry-run a range/list
+./sync.py backfill-comments --yes                       # post/update every uploaded paper
+./sync.py backfill-comments --papers 62 --yes           # single paper
+./sync.py backfill-comments --papers 62-79 --yes        # a range
+```
+
+`backfill-comments` is idempotent: it reads `comment-state.json` to know
+which papers already have a comment and takes the update path for those,
+skipping re-posts.
+
 ## Quota
 
 YouTube Data API costs (per paper):
