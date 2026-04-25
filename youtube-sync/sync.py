@@ -119,6 +119,9 @@ def playlist_keys_for_paper(paper_id: str) -> list[str]:
 # Matches "Paper 1", "Paper 42", "Foreword" in existing video titles.
 TITLE_RE = re.compile(r"(Paper\s+)(\d{1,3})\b", re.IGNORECASE)
 FOREWORD_RE = re.compile(r"\bForeword\b", re.IGNORECASE)
+# Matches YouTube's auto-title for drag-and-drop uploads of our MP4 files,
+# e.g. "tts 1 hd nova 129" (from filename tts-1-hd-nova-129.mp4).
+TTS_RAW_RE = re.compile(r"\btts\s+1\s+hd\s+nova\s+(\d{1,3})\b", re.IGNORECASE)
 
 
 def get_service():
@@ -187,6 +190,10 @@ def paper_id_from_title(title: str) -> str | None:
         return m.group(2).lstrip("0") or "0"
     if FOREWORD_RE.search(title):
         return "0"
+    # Drag-and-drop uploads default to the filename: "tts 1 hd nova 129".
+    m = TTS_RAW_RE.search(title)
+    if m:
+        return m.group(1).lstrip("0") or "0"
     return None
 
 
@@ -395,7 +402,9 @@ def cmd_push(args):
 
     yt = get_service()
 
-    if args.paper:
+    if args.papers:
+        paper_ids = _expand_range(args.papers)
+    elif args.paper:
         paper_ids = [args.paper]
     else:
         paper_ids = sorted(
@@ -451,6 +460,13 @@ def cmd_push(args):
                 # Education = 27. Keep category pinned per the upload guide.
                 "categoryId": "27",
             },
+            # Manual Studio drag-and-drop can leave videos as unlisted/private
+            # with "made for kids" unset. Push the canonical values every time
+            # so metadata state is deterministic.
+            "status": {
+                "privacyStatus": "public",
+                "selfDeclaredMadeForKids": False,
+            },
         }
 
         if args.thumbnails_only:
@@ -486,7 +502,7 @@ def cmd_push(args):
             continue
 
         try:
-            yt.videos().update(part="snippet", body=body).execute()
+            yt.videos().update(part="snippet,status", body=body).execute()
             print(f"  paper {pid}: updated {video_id}")
             updated += 1
 
@@ -502,6 +518,9 @@ def cmd_push(args):
                     print(f"    no thumbnail at {thumb}")
         except Exception as e:
             print(f"  paper {pid}: FAILED — {e}")
+            if "quotaExceeded" in str(e):
+                print("  quota exhausted — stop and retry tomorrow")
+                break
             skipped += 1
 
     print(f"\n{'DRY-RUN ' if args.dry_run else ''}done: {updated} updated, {skipped} skipped")
@@ -983,6 +1002,10 @@ def main():
     sp_push = sub.add_parser("push", help="push metadata (+ thumbnails) to YouTube")
     sp_push.add_argument("--dry-run", action="store_true", help="preview without writing")
     sp_push.add_argument("--paper", help="push a single paper id, e.g. --paper 1")
+    sp_push.add_argument(
+        "--papers",
+        help="paper range or list, e.g. --papers 17-129 or --papers 1,3,17-31",
+    )
     sp_push.add_argument(
         "--thumbnails", action="store_true", help="also upload thumbnail-{id}.png"
     )

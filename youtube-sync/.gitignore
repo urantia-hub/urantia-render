@@ -11,3 +11,5 @@ nohup.log
 launchd.out.log
 launchd.err.log
 __pycache__/
+.yt-auth-state.json
+PAUSED

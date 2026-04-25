@@ -12,6 +12,10 @@
 
 set -euxo pipefail
 
+# cloud-init runs as root with no HOME set, which breaks rustup's
+# $HOME/.cargo/env idiom under `set -u`. Pin it defensively.
+export HOME="${HOME:-/root}"
+
 # ─── Config (edit or inject via Terraform/cloud-init template) ───
 REPO_URL="${REPO_URL:-https://github.com/urantia-hub/urantia-render.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
