@@ -54,7 +54,7 @@ cargo run -- all --papers 0-196
 
 All audio is pre-generated and hosted on the CDN:
 
-- **URL pattern**: `https://audio.urantia.dev/tts-1-hd-nova-{globalId}.mp3`
+- **URL pattern**: `https://cdn.urantia.dev/audio/eng/paragraphs/nova/tts-1-hd-nova-{globalId}.mp3`
 - **Coverage**: 16,219 paragraphs (99.99%)
 - **Voice**: OpenAI TTS `tts-1-hd` model, `nova` voice
 

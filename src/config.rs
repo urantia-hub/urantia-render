@@ -9,7 +9,7 @@ pub const FPS: u32 = 30;
 pub const RESOLUTION_SCALE: f32 = WIDTH as f32 / 1920.0;
 
 // CDN
-pub const AUDIO_CDN_BASE: &str = "https://audio.urantia.dev";
+pub const AUDIO_CDN_BASE: &str = "https://cdn.urantia.dev/audio/eng/paragraphs";
 pub const PAPER_CDN_BASE: &str = "https://cdn.urantia.dev/json/eng";
 pub const MANIFEST_CDN_URL: &str = "https://cdn.urantia.dev/manifests/audio-manifest.json";
 pub const AUDIO_MODEL: &str = "tts-1-hd";
@@ -66,7 +66,10 @@ pub const MIN_CHUNK_CHARS: usize = 100;
 pub const DOWNLOAD_CONCURRENCY: usize = 10;
 
 pub fn audio_url(global_id: &str) -> String {
-    format!("{}/{}-{}-{}.mp3", AUDIO_CDN_BASE, AUDIO_MODEL, AUDIO_VOICE, global_id)
+    format!(
+        "{}/{}/{}-{}-{}.mp3",
+        AUDIO_CDN_BASE, AUDIO_VOICE, AUDIO_MODEL, AUDIO_VOICE, global_id
+    )
 }
 
 pub fn paper_cdn_url(paper_id: &str) -> String {
@@ -75,4 +78,19 @@ pub fn paper_cdn_url(paper_id: &str) -> String {
 
 pub fn video_filename(paper_id: &str) -> String {
     format!("{}-{}-{}.mp4", AUDIO_MODEL, AUDIO_VOICE, paper_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The voice appears twice: once as the directory, once in the filename.
+    /// Dropping either one, or reverting to audio.urantia.dev, 404s every paragraph.
+    #[test]
+    fn audio_url_matches_the_cdn_layout() {
+        assert_eq!(
+            audio_url("1:1.-.-"),
+            "https://cdn.urantia.dev/audio/eng/paragraphs/nova/tts-1-hd-nova-1:1.-.-.mp3"
+        );
+    }
 }

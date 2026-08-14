@@ -54,14 +54,18 @@ High-performance Rust video renderer for the UrantiaHub YouTube channel. Renders
 
 ## Audio CDN
 
-- Paper audio: `https://audio.urantia.dev/tts-1-hd-nova-{globalId}.mp3`
+- Paper audio: `https://cdn.urantia.dev/audio/eng/paragraphs/nova/tts-1-hd-nova-{globalId}.mp3`
 - Paper intro: globalId `{partId}:{paperId}.-.-` (e.g., `1:1.-.-`)
 - Section intro: globalId `{partId}:{paperId}.{sectionId}.-` (e.g., `1:1.1.-`)
 - Manifest: `https://cdn.urantia.dev/manifests/audio-manifest.json`
 
+The old `audio.urantia.dev` host still resolves. It is a frozen snapshot that holds
+nova files only, so a nova URL returns 200 there and the host looks healthy. Do not
+move back to it.
+
 ## Notes
 
-- Audio manifest from CDN has slightly different key behavior than local copy — use `--manifest-path` with local `urantia-dev-api/data/audio-manifest.json` for reliable lookups
+- The published manifest and `urantia-dev-api/data/audio-manifest.json` are the same file as of 2026-08-13. Before that the published copy was 19 days stale and carried no `duration` field, which is why `--manifest-path` was the reliable route. Check the two before you trust either.
 - Phase 2+ modules are stubs (compile but no implementation)
 - Fonts not yet downloaded into `assets/fonts/`
 
