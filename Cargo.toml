@@ -27,7 +27,7 @@ symphonia = { version = "0.5", features = ["mp3"] }
 # Video encoding (ffmpeg via subprocess — no crate needed)
 
 # S3/R2 upload
-rust-s3 = { version = "0.35", features = ["tokio-rustls-tls"], default-features = false }
+rust-s3 = { version = "0.37", features = ["tokio-rustls-tls"], default-features = false }
 
 # Parallelism
 rayon = "1.10"
