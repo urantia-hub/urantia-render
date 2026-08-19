@@ -33,7 +33,7 @@ rust-s3 = { version = "0.37", features = ["tokio-rustls-tls"], default-features 
 rayon = "1.10"
 
 # Progress bars
-indicatif = "0.17"
+indicatif = "0.18"
 
 # Env vars
 dotenvy = "0.15"
