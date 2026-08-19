@@ -16,7 +16,7 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 
 # 2D rendering
-tiny-skia = "0.11"
+tiny-skia = "0.12"
 
 # Text layout
 cosmic-text = "0.12"
