@@ -10,7 +10,7 @@ High-performance Rust video renderer for the UrantiaHub YouTube channel. Renders
 - Video encoding: ffmpeg (spawned as subprocess, raw frames piped via stdin)
 - Audio decode: symphonia (pure Rust MP3 decoder)
 - HTTP: reqwest + tokio
-- S3/R2: rust-s3
+- S3/R2: rust-s3 (keep on 0.37+; 0.35 pulled the vulnerable rustls 0.21 chain)
 - CLI: clap (derive)
 - Parallelism: rayon
 
