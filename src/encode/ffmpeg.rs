@@ -132,6 +132,18 @@ fn encoder_args(encoder: &str) -> Vec<String> {
             "-b:v".into(), "0".into(),
             "-pix_fmt".into(), "yuv420p".into(),
         ],
+        // libx264 + CRF 16 + slow preset for the trailer / hero content.
+        // Smooth 30fps gradients show macroblock artifacts on the hardware
+        // encoders at default quality — software libx264 with a tight CRF
+        // and slow preset gives pristine output. Worth the ~5x encode cost
+        // for a 30s one-off.
+        "libx264-trailer" => vec![
+            "-c:v".into(), "libx264".into(),
+            "-preset".into(), "slow".into(),
+            "-crf".into(), "16".into(),
+            "-profile:v".into(), "high".into(),
+            "-pix_fmt".into(), "yuv420p".into(),
+        ],
         // libx264 default. `-preset fast` trades a bit of compression for
         // ~3× encode speed — perfect for our low-entropy text-on-dark content
         // where the codec isn't working hard anyway.

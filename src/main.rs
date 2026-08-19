@@ -129,14 +129,13 @@ enum Commands {
         #[arg(long, default_value = "./output/videos/outro-preview.mp4")]
         output: PathBuf,
     },
-    /// Render channel trailer (~60s)
+    /// Render the 30s channel trailer (cold open + 4 part headers + CTA + outro)
     Trailer {
-        #[arg(long, default_value = "./output/videos/trailer.mp4")]
+        #[arg(long, default_value = "./output/videos/channel-trailer.mp4")]
         output: PathBuf,
+        /// Directory containing trailer/audio/{cold-open,part-1..4,cta}.mp3 + trailer/music/bed.mp3
         #[arg(long, default_value = "./output")]
         output_dir: PathBuf,
-        #[arg(long)]
-        manifest_path: Option<PathBuf>,
     },
     /// Run full pipeline
     All {
@@ -240,12 +239,8 @@ async fn main() -> Result<()> {
         }
         Commands::PlaylistThumbnails { output_dir } => cmd_playlist_thumbnails(&output_dir).await?,
         Commands::OutroPreview { output } => cmd_outro_preview(&output).await?,
-        Commands::Trailer {
-            output,
-            output_dir,
-            manifest_path,
-        } => {
-            cmd_trailer(&output, &output_dir, manifest_path.as_deref()).await?;
+        Commands::Trailer { output, output_dir } => {
+            cmd_trailer(&output, &output_dir).await?;
         }
         Commands::All { papers, .. } => {
             println!("Full pipeline not yet implemented");
@@ -883,162 +878,238 @@ async fn cmd_thumbnails(papers: &str, output_dir: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_trailer(
-    output: &PathBuf,
-    output_dir: &PathBuf,
-    manifest_path: Option<&std::path::Path>,
-) -> Result<()> {
+async fn cmd_trailer(output: &PathBuf, output_dir: &PathBuf) -> Result<()> {
     use crate::data::manifest::{PaperManifest, Segment};
-    use crate::data::text_chunker::TextChunk;
+    use std::process::Command;
 
     println!("Building channel trailer...");
 
-    // Load audio manifest for durations
-    let audio_manifest = if let Some(path) = manifest_path {
-        data::audio_manifest::AudioManifest::from_file(path)?
-    } else {
-        println!("  Downloading audio manifest from CDN...");
-        let resp = reqwest::get(config::MANIFEST_CDN_URL).await?;
-        let json = resp.text().await?;
-        data::audio_manifest::AudioManifest::from_json(&json)?
-    };
-
-    // Load Paper 1 JSON for paragraph text
-    let url = config::paper_cdn_url("1");
-    let resp = reqwest::get(&url).await?;
-    let json = resp.text().await?;
-    let paper = data::paper::Paper::from_json(&json)?;
-
-    // Find paragraphs 1:0.1 and 1:0.3
-    let para_0_1 = paper.sections.iter()
-        .flat_map(|s| &s.paragraphs)
-        .find(|p| p.global_id == "1:1.0.1")
-        .ok_or_else(|| anyhow::anyhow!("Paragraph 1:1.0.1 not found"))?;
-
-    let para_0_3 = paper.sections.iter()
-        .flat_map(|s| &s.paragraphs)
-        .find(|p| p.global_id == "1:1.0.3")
-        .ok_or_else(|| anyhow::anyhow!("Paragraph 1:1.0.3 not found"))?;
-
-    // Get audio durations
-    let intro_gid = "1:1.-.-";
-    let intro_dur = audio_manifest.get_duration(intro_gid).unwrap_or(2.0);
-    let dur_0_1 = audio_manifest.get_duration("1:1.0.1").unwrap_or(45.0);
-    let dur_0_3 = audio_manifest.get_duration("1:1.0.3").unwrap_or(60.0);
-
     let fps = config::FPS;
     let mut current_frame = 0u32;
-
-    // Build custom manifest
     let mut segments = Vec::new();
 
-    // 1. Intro card (Paper 1 title) — audio duration + 1s padding
-    let intro_frames = (intro_dur * fps as f64).ceil() as u32 + fps;
-    segments.push(Segment::Intro {
-        paper_title: "The Universal Father".to_string(),
-        paper_id: "1".to_string(),
-        start_frame: current_frame,
-        duration_frames: intro_frames,
-    });
-    current_frame += intro_frames;
+    let card = |title: &str, frames: u32, start: u32| Segment::SectionCard {
+        section_title: title.to_string(),
+        start_frame: start,
+        duration_frames: frames,
+    };
 
-    // 2. Paragraph 1:0.1
-    let frames_0_1 = (dur_0_1 * fps as f64).ceil() as u32;
-    segments.push(Segment::Paragraph {
-        global_id: "1:1.0.1".to_string(),
-        standard_reference_id: para_0_1.standard_reference_id.clone(),
-        text: para_0_1.text.clone(),
-        section_title: None,
-        audio_duration_sec: dur_0_1,
-        start_frame: current_frame,
-        duration_frames: frames_0_1,
-        text_chunks: vec![TextChunk {
-            text: para_0_1.text.clone(),
-            start_frame: 0,
-            duration_frames: frames_0_1,
-        }],
-    });
-    current_frame += frames_0_1;
+    // 1. Cold open (4.5s — narration is "The Urantia Papers." (~1.3s); the
+    // remaining ~3.2s is a deliberate musical pause before the Part headers)
+    let cold_frames = 9 * fps / 2;
+    segments.push(card(
+        "The Urantia Papers",
+        cold_frames,
+        current_frame,
+    ));
+    current_frame += cold_frames;
 
-    // 3. Paragraph 1:0.3
-    let frames_0_3 = (dur_0_3 * fps as f64).ceil() as u32;
-    let chunks_0_3 = data::text_chunker::chunk_text(&para_0_3.text, dur_0_3, frames_0_3);
-    segments.push(Segment::Paragraph {
-        global_id: "1:1.0.3".to_string(),
-        standard_reference_id: para_0_3.standard_reference_id.clone(),
-        text: para_0_3.text.clone(),
-        section_title: None,
-        audio_duration_sec: dur_0_3,
-        start_frame: current_frame,
-        duration_frames: frames_0_3,
-        text_chunks: chunks_0_3,
-    });
-    current_frame += frames_0_3;
+    // 2-5. Four part headers (4s each) — Roman numeral label + title on its own line
+    let part_frames = 4 * fps;
+    for (label, title) in [
+        ("Part I", "The Central and Superuniverses"),
+        ("Part II", "The Local Universe"),
+        ("Part III", "The History of Urantia"),
+        ("Part IV", "The Life and Teachings of Jesus"),
+    ] {
+        segments.push(card(
+            &format!("{}\n{}", label, title),
+            part_frames,
+            current_frame,
+        ));
+        current_frame += part_frames;
+    }
 
-    // 4. Outro with custom tagline
-    let outro_frames = config::OUTRO_FRAMES;
+    // 6. CTA card (5s)
+    let cta_frames = 5 * fps;
+    segments.push(card(
+        "Read along to every paper\nwhile you listen.",
+        cta_frames,
+        current_frame,
+    ));
+    current_frame += cta_frames;
+
+    // 7. UrantiaHub outro (5s)
+    let outro_frames = 5 * fps;
     segments.push(Segment::Outro {
         start_frame: current_frame,
         duration_frames: outro_frames,
-        tagline: Some("197 Papers. Every paragraph. Listen and read along.".to_string()),
+        tagline: None,
     });
     current_frame += outro_frames;
 
     let manifest = PaperManifest {
-        paper_id: "1".to_string(), // use "1" so audio lookup finds files in output/audio/1/
+        paper_id: "trailer".to_string(),
         paper_title: "Channel Trailer".to_string(),
-        part_id: "1".to_string(),
+        part_id: "trailer".to_string(),
         fps,
         segments,
         total_duration_frames: current_frame,
         total_duration_sec: current_frame / fps,
     };
 
+    let total_sec = current_frame as f64 / fps as f64;
     println!(
-        "  Trailer: {} segments, {}s total",
+        "  {} segments, {:.1}s total",
         manifest.segments.len(),
-        manifest.total_duration_sec
+        total_sec
     );
 
-    // Download audio for trailer paragraphs
-    let audio_dir = output_dir.join("audio").join("1");
-    tokio::fs::create_dir_all(&audio_dir).await?;
-
-    let client = reqwest::Client::new();
-    for gid in &[intro_gid, "1:1.0.1", "1:1.0.3"] {
-        let dest = audio_dir.join(format!("{}.mp3", gid));
-        if !dest.exists() {
-            let url = config::audio_url(gid);
-            let bytes = client.get(&url).send().await?.bytes().await?;
-            tokio::fs::write(&dest, &bytes).await?;
-            println!("  Downloaded {}", gid);
-        }
+    // Generate a silent WAV the renderer can mux as the placeholder track.
+    // Real audio gets ffmpeg-overlaid in the post-processing step below.
+    let silent_wav = std::env::temp_dir().join("urantia_trailer_silent.wav");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=44100:cl=stereo",
+            "-t",
+            &total_sec.to_string(),
+            silent_wav.to_str().unwrap(),
+        ])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .context("ffmpeg silent-wav generation failed")?;
+    if !status.success() {
+        anyhow::bail!("ffmpeg silent-wav exited non-zero");
     }
 
-    // Build audio buffer
-    eprint!("  Building audio buffer...");
-    let (pcm, sample_rate) = audio::concat::build_audio_buffer(&manifest, &output_dir.join("audio"))?;
-    let wav_path = std::env::temp_dir().join("urantia_trailer.wav");
-    audio::concat::write_wav(&pcm, sample_rate, &wav_path)?;
-    eprintln!(" done ({:.1}s)", pcm.len() as f64 / sample_rate as f64);
-
-    // Render
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let start = std::time::Instant::now();
-    render::pipeline::render_paper(&manifest, output, &wav_path, None)?;
-    let _ = std::fs::remove_file(&wav_path);
-
-    let elapsed = start.elapsed().as_secs();
-    let size_mb = std::fs::metadata(output)?.len() as f64 / 1024.0 / 1024.0;
-    println!(
-        "  Done: {} ({:.1} MB, {}s)",
-        output.display(),
-        size_mb,
-        elapsed
+    let silent_mp4 = output.with_file_name("channel-trailer-silent.mp4");
+    eprintln!("  Rendering visuals → {}", silent_mp4.display());
+    let render_start = std::time::Instant::now();
+    // hold_step=1 → full 30fps gradient (no orb stutter on long card holds).
+    // Override the encoder to libx264 + CRF 16 for the trailer — Apple's
+    // videotoolbox at q:v 65 produces macroblock artifacts on smooth
+    // gradients when every frame is unique (no duplicate-frame compression
+    // wins). Software libx264 at CRF 16 is slower but pristine. Restored
+    // afterward so it doesn't leak into other renders in the same run.
+    let prev_encoder = std::env::var("URANTIA_RENDER_ENCODER").ok();
+    std::env::set_var("URANTIA_RENDER_ENCODER", "libx264-trailer");
+    let result = render::pipeline::render_paper_with_options(
+        &manifest,
+        &silent_mp4,
+        &silent_wav,
+        None,
+        1,
     );
+    match prev_encoder {
+        Some(v) => std::env::set_var("URANTIA_RENDER_ENCODER", v),
+        None => std::env::remove_var("URANTIA_RENDER_ENCODER"),
+    }
+    result?;
+    let _ = std::fs::remove_file(&silent_wav);
+    eprintln!(
+        "    rendered in {}s",
+        render_start.elapsed().as_secs()
+    );
+
+    // Mix narration + music bed under the rendered visuals.
+    // Narration offsets line up with each card: cold-open enters ~0.5s in (after
+    // fade-in), each Part 0.5s after its card starts, CTA 0.5s after its card.
+    let audio_dir = output_dir.join("trailer/audio");
+    let bed = output_dir.join("trailer/music/bed.mp3");
+    let need = [
+        "cold-open.mp3",
+        "part-1.mp3",
+        "part-2.mp3",
+        "part-3.mp3",
+        "part-4.mp3",
+        "cta.mp3",
+        "outro.mp3",
+    ];
+    for f in &need {
+        if !audio_dir.join(f).exists() {
+            anyhow::bail!("missing narration clip: {}", audio_dir.join(f).display());
+        }
+    }
+    if !bed.exists() {
+        anyhow::bail!("missing music bed: {}", bed.display());
+    }
+
+    // Card start times (sec): 0, 4.5, 8.5, 12.5, 16.5, 20.5, 25.5
+    // Narration enters 0.5s into each card so the fade-in lands first.
+    let offsets_ms = [500u32, 5000, 9000, 13000, 17000, 21000, 26000];
+
+    let mut filter = String::new();
+    // Music bed at -15dB (~0.18 linear) so narration sits clearly on top.
+    filter.push_str("[1:a]volume=0.18[bed];");
+    for (i, ms) in offsets_ms.iter().enumerate() {
+        // Inputs 2..=8 are the narration clips.
+        filter.push_str(&format!("[{}:a]adelay={}|{}[v{}];", i + 2, ms, ms, i));
+    }
+    filter.push_str(
+        "[bed][v0][v1][v2][v3][v4][v5][v6]amix=inputs=8:dropout_transition=0:normalize=0[a]",
+    );
+
+    eprintln!("  Mixing audio (narration + music bed) → {}", output.display());
+    let mut args: Vec<String> = vec![
+        "-y".into(),
+        "-i".into(),
+        silent_mp4.to_string_lossy().into_owned(),
+        "-i".into(),
+        bed.to_string_lossy().into_owned(),
+    ];
+    for f in &need {
+        args.push("-i".into());
+        args.push(audio_dir.join(f).to_string_lossy().into_owned());
+    }
+    args.extend([
+        "-filter_complex".into(),
+        filter,
+        "-map".into(),
+        "0:v".into(),
+        "-map".into(),
+        "[a]".into(),
+        "-c:v".into(),
+        "copy".into(),
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "192k".into(),
+        "-shortest".into(),
+        output.to_string_lossy().into_owned(),
+    ]);
+
+    let mix_status = Command::new("ffmpeg")
+        .args(&args)
+        .stderr(std::process::Stdio::null())
+        .status()
+        .context("ffmpeg audio-mix failed")?;
+    if !mix_status.success() {
+        anyhow::bail!("ffmpeg audio-mix exited non-zero");
+    }
+    let _ = std::fs::remove_file(&silent_mp4);
+
+    let size_mb = std::fs::metadata(output)?.len() as f64 / 1024.0 / 1024.0;
+    println!("  Done: {} ({:.1} MB)", output.display(), size_mb);
+
+    // Generate the matching channel-trailer thumbnail (3840x2160) so it can
+    // be uploaded alongside the video. Reuses the playlist-thumbnail layout
+    // for visual consistency with the channel's existing thumbnails.
+    let thumb_dir = output_dir.join("thumbnails");
+    std::fs::create_dir_all(&thumb_dir)?;
+    let thumb_path = thumb_dir.join("channel-trailer.png");
+    let mut renderer = render::text::TextRenderer::new();
+    let mut pixmap = render::background::render_background_at(3840, 2160, 2.0, 1.5);
+    let mut content = tiny_skia::Pixmap::new(3840, 2160).unwrap();
+    // Gold label "The Urantia Papers" (thumbnail_paper_number style: #D4A84A
+    // Lato Bold) + white title "Listen & Read" (thumbnail_paper_title_right
+    // style: Lora SemiBold).
+    render::cards::render_playlist_thumbnail(
+        &mut renderer,
+        &mut content,
+        "The Urantia Papers",
+        "Listen & Read",
+    );
+    render::compositor::composite(&mut pixmap, &content, 1.0);
+    pixmap.save_png(&thumb_path)?;
+    println!("  Thumbnail: {}", thumb_path.display());
 
     Ok(())
 }

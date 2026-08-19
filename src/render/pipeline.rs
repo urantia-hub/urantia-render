@@ -16,6 +16,20 @@ pub fn render_paper(
     audio_wav_path: &Path,
     max_frames: Option<u32>,
 ) -> Result<()> {
+    render_paper_with_options(manifest, output_path, audio_wav_path, max_frames, 3)
+}
+
+/// Same as `render_paper`, but exposes the background hold step.
+/// Default (3) renders the gradient at 10fps for fast paper rendering.
+/// Pass 1 for full 30fps gradient (trailer / hero content) — costs ~3x more
+/// unique frames but eliminates the visible 14px-per-100ms orb stutter at 4K.
+pub fn render_paper_with_options(
+    manifest: &PaperManifest,
+    output_path: &Path,
+    audio_wav_path: &Path,
+    max_frames: Option<u32>,
+    hold_step: u32,
+) -> Result<()> {
     let mut renderer = TextRenderer::new();
     let mut encoder = FfmpegEncoder::new(output_path, audio_wav_path)?;
 
@@ -39,7 +53,7 @@ pub fn render_paper(
                 let global_time = gf as f64 / FPS as f64;
                 let pixmap = crate::render::background::render_background(global_time);
                 let frame_data = pixmap.data();
-                let repeat = 3u32.min(start_frame - gf);
+                let repeat = hold_step.min(start_frame - gf);
                 for _ in 0..repeat {
                     if max_frames.is_some_and(|m| frames_written >= m) { break; }
                     encoder.write_frame(frame_data)?;
@@ -56,11 +70,11 @@ pub fn render_paper(
 
         // Render with keyframe+repeat optimization:
         // - Fade in/out: render every frame (opacity changes)
-        // - Hold: render every 3 frames, repeat 3x (10fps glow = smooth enough)
+        // - Hold: render every `hold_step` frames (caller-supplied; 3 = 10fps,
+        //   1 = full 30fps).
         let fade = FADE_FRAMES.min(duration / 2);
         let hold_start = fade;
         let hold_end = duration.saturating_sub(fade);
-        let hold_step = 3u32; // render every 3rd frame during hold
 
         // Fade in
         for local_frame in 0..hold_start {
